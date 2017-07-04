@@ -515,6 +515,17 @@ public class VideoCallPresenter
     isVideoCallScreenUiReady = true;
     InCallVideoCallCallbackNotifier.getInstance().addVideoEventListener(this,
         VideoProfile.isVideo(currentVideoState));
+
+    Point sourceVideoDimensions = getRemoteVideoSurfaceTexture().getSourceVideoDimensions();
+    if (sourceVideoDimensions != null && primaryCall != null) {
+      int width = primaryCall.getPeerDimensionWidth();
+      int height = primaryCall.getPeerDimensionHeight();
+      boolean updated = DialerCall.UNKNOWN_PEER_DIMENSIONS != width
+          && DialerCall.UNKNOWN_PEER_DIMENSIONS != height;
+      if (updated && (sourceVideoDimensions.x != width || sourceVideoDimensions.y != height)) {
+        onUpdatePeerDimensions(primaryCall, width, height);
+      }
+    }
   }
 
   /** Called when the user interface is no longer ready to be used. */
