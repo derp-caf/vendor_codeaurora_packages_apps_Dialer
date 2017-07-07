@@ -48,6 +48,7 @@ import com.android.incallui.audiomode.AudioModeProvider.AudioModeListener;
 import com.android.incallui.call.CallList;
 import com.android.incallui.call.DialerCall;
 import com.android.incallui.call.DialerCall.CameraDirection;
+import com.android.incallui.call.DialerCallListener;
 import com.android.incallui.call.TelecomAdapter;
 import com.android.incallui.call.state.DialerCallState;
 import com.android.incallui.incall.protocol.InCallButtonIds;
@@ -67,7 +68,8 @@ public class CallButtonPresenter
         InCallEventListener,
         CanAddCallListener,
         Listener,
-        InCallButtonUiDelegate {
+        InCallButtonUiDelegate,
+        DialerCallListener {
 
   private static final String KEY_AUTOMATICALLY_MUTED_BY_ADD_CALL =
       "incall_key_automatically_muted_by_add_call";
@@ -120,11 +122,18 @@ public class CallButtonPresenter
     InCallPresenter.getInstance().removeCanAddCallListener(this);
     phoneAccountChangedReceiver.unregister();
     isInCallButtonUiReady = false;
+
+    if (call != null) {
+      call.removeListener(this);
+    }
   }
 
   @Override
   public void onStateChange(InCallState oldState, InCallState newState, CallList callList) {
     Trace.beginSection("CallButtonPresenter.onStateChange");
+    if (call != null) {
+      call.removeListener(this);
+    }
     if (newState == InCallState.OUTGOING) {
       call = callList.getOutgoingCall();
     } else if (newState == InCallState.INCALL) {
@@ -146,6 +155,10 @@ public class CallButtonPresenter
       call = callList.getIncomingCall();
     } else {
       call = null;
+    }
+
+    if (call != null) {
+      call.addListener(this);
     }
     updateUi(newState, call);
     Trace.endSection();
@@ -435,7 +448,6 @@ public class CallButtonPresenter
             call.getTimeAddedMs());
 
     if (pause) {
-      call.getVideoTech().setCamera(null);
       call.getVideoTech().stopTransmission();
     } else {
       updateCamera(
@@ -664,6 +676,44 @@ public class CallButtonPresenter
     }
     inCallButtonUi.setCameraSwitched(!isUsingFrontFacingCamera);
   }
+
+  @Override
+  public void onDialerCallSessionModificationStateChange() {
+    if (inCallButtonUi != null && call != null) {
+      inCallButtonUi.enableButton(InCallButtonIds.BUTTON_PAUSE_VIDEO, true);
+      updateButtonsState(call);
+    }
+  }
+
+  @Override
+  public void onDialerCallDisconnect() {}
+
+  @Override
+  public void onDialerCallUpdate() {}
+
+  @Override
+  public void onDialerCallChildNumberChange() {}
+
+  @Override
+  public void onDialerCallLastForwardedNumberChange() {}
+
+  @Override
+  public void onDialerCallUpgradeToVideo() {}
+
+  @Override
+  public void onWiFiToLteHandover() {}
+
+  @Override
+  public void onHandoverToWifiFailure() {}
+
+  @Override
+  public void onInternationalCallOnWifi() {}
+
+  @Override
+  public void onEnrichedCallSessionUpdate() {}
+
+  @Override
+  public void onSuplServiceMessage(String suplNotificationMessage) {}
 
   @Override
   public Context getContext() {
