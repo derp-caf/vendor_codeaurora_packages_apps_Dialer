@@ -360,6 +360,30 @@ public class VideoCallFragment extends Fragment
             updatePreviewOffView();
           }
         });
+
+    controls.addOnLayoutChangeListener(
+        new OnLayoutChangeListener() {
+          @Override
+          public void onLayoutChange(
+              View v,
+              int left,
+              int top,
+              int right,
+              int bottom,
+              int oldLeft,
+              int oldTop,
+              int oldRight,
+              int oldBottom) {
+            LogUtil.i("VideoCallFragment.onLayoutChange", "controls layout changed");
+            if (getActivity() != null && getView() != null) {
+              controls.removeOnLayoutChangeListener(this);
+              if (isInFullscreenMode) {
+                enterFullscreenMode();
+              }
+            }
+          }
+        });
+
     return view;
   }
 
@@ -388,6 +412,12 @@ public class VideoCallFragment extends Fragment
     inCallButtonUiDelegate.onInCallButtonUiReady(this);
 
     view.setOnSystemUiVisibilityChangeListener(this);
+
+    if (videoCallScreenDelegate.isFullscreen()) {
+        controls.setVisibility(View.INVISIBLE);
+        contactGridManager.getContainerView().setVisibility(View.INVISIBLE);
+        endCallButton.setVisibility(View.INVISIBLE);
+    }
   }
 
   @Override
@@ -476,6 +506,13 @@ public class VideoCallFragment extends Fragment
         .translationY(0)
         .setInterpolator(linearOutSlowInInterpolator)
         .alpha(1)
+        .withStartAction(
+            new Runnable() {
+              @Override
+              public void run() {
+                controls.setVisibility(View.VISIBLE);
+              }
+            })
         .start();
 
    switchControls
