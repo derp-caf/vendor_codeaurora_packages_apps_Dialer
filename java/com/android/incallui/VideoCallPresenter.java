@@ -666,8 +666,7 @@ public class VideoCallPresenter
       if (isVideoMode()) {
         exitVideoMode();
       }
-      sShallTransmitStaticImage = false;
-      sUseDefaultImage = false;
+      cleanUp();
       InCallPresenter.getInstance().cleanupSurfaces();
     }
 
