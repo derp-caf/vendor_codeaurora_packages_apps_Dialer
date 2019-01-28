@@ -12,6 +12,7 @@
 #               --proto_path="packages/apps/Dialer/java/com/android/voicemail/impl/transcribe/grpc/" "packages/apps/Dialer/java/com/android/voicemail/impl/transcribe/grpc/voicemail_transcription.proto"
 # * b/37077388 temporarily disable proguard with javac
 #disabling compilation
+ifeq ($(TARGET_FWK_SUPPORTS_FULL_VALUEADDS), true)
 LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
@@ -571,3 +572,4 @@ LOCAL_UNINSTALLABLE_MODULE := true
 include $(BUILD_PREBUILT)
 
 include $(CLEAR_VARS)
+endif
