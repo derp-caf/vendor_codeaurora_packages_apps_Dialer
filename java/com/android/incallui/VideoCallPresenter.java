@@ -19,22 +19,27 @@ package com.android.incallui;
 import android.app.Activity;
 import android.content.Context;
 import android.content.pm.ActivityInfo;
+import android.hardware.display.DisplayManager;
+import android.hardware.display.VirtualDisplay;
 import android.graphics.Point;
+import android.media.projection.MediaProjection;
+import android.media.projection.MediaProjectionManager;
 import android.net.Uri;
 import android.os.Handler;
-import android.provider.Settings;
+import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.telecom.Connection.VideoProvider;
 import android.telecom.InCallService.VideoCall;
 import android.telecom.VideoProfile;
 import android.telecom.VideoProfile.CameraCapabilities;
+import android.util.DisplayMetrics;
 import android.view.Surface;
 import android.view.SurfaceView;
 import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
-import com.android.dialer.compat.CompatUtils;
-import com.android.dialer.configprovider.ConfigProviderBindings;
+import com.android.dialer.configprovider.ConfigProviderComponent;
 import com.android.dialer.util.PermissionsUtil;
+import com.android.incallui.QtiCallUtils;
 import com.android.incallui.InCallPresenter.InCallDetailsListener;
 import com.android.incallui.InCallPresenter.InCallOrientationListener;
 import com.android.incallui.InCallPresenter.InCallStateListener;
@@ -42,9 +47,9 @@ import com.android.incallui.InCallPresenter.IncomingCallListener;
 import com.android.incallui.call.CallList;
 import com.android.incallui.call.DialerCall;
 import com.android.incallui.call.DialerCall.CameraDirection;
-import com.android.incallui.call.DialerCall.State;
 import com.android.incallui.call.InCallVideoCallCallbackNotifier;
 import com.android.incallui.call.InCallVideoCallCallbackNotifier.SurfaceChangeListener;
+import com.android.incallui.call.state.DialerCallState;
 import com.android.incallui.call.InCallVideoCallCallbackNotifier.VideoEventListener;
 import com.android.incallui.util.AccessibilityUtil;
 import com.android.incallui.video.protocol.VideoCallScreen;
@@ -55,7 +60,13 @@ import com.android.incallui.videotech.utils.SessionModificationState;
 import com.android.incallui.videotech.utils.VideoUtils;
 import java.util.Objects;
 
+import org.codeaurora.ims.ImsScreenShareListenerBase;
+import org.codeaurora.ims.ImsScreenShareManager;
+import org.codeaurora.ims.QtiImsException;
+import org.codeaurora.ims.QtiImsExtConnector;
+import org.codeaurora.ims.QtiImsExtManager;
 import org.codeaurora.ims.utils.QtiImsExtUtils;
+
 /**
  * Logic related to the {@link VideoCallScreen} and for managing changes to the video calling
  * surfaces based on other user interface events and incoming events from the {@class
@@ -66,14 +77,14 @@ import org.codeaurora.ims.utils.QtiImsExtUtils;
  * layer:
  *
  * <ul>
- * <li>{@code VideoCallPresenter} creates and informs telephony of the display surface.
- * <li>{@code VideoCallPresenter} creates the preview surface.
- * <li>{@code VideoCallPresenter} informs telephony of the currently selected camera.
- * <li>Telephony layer sends {@link CameraCapabilities}, including the dimensions of the video for
- *     the current camera.
- * <li>{@code VideoCallPresenter} adjusts size of the preview surface to match the aspect ratio of
- *     the camera.
- * <li>{@code VideoCallPresenter} informs telephony of the new preview surface.
+ *   <li>{@code VideoCallPresenter} creates and informs telephony of the display surface.
+ *   <li>{@code VideoCallPresenter} creates the preview surface.
+ *   <li>{@code VideoCallPresenter} informs telephony of the currently selected camera.
+ *   <li>Telephony layer sends {@link CameraCapabilities}, including the dimensions of the video for
+ *       the current camera.
+ *   <li>{@code VideoCallPresenter} adjusts size of the preview surface to match the aspect ratio of
+ *       the camera.
+ *   <li>{@code VideoCallPresenter} informs telephony of the new preview surface.
  * </ul>
  *
  * <p>When downgrading to an audio-only video state, the {@code VideoCallPresenter} nulls both
@@ -87,68 +98,69 @@ public class VideoCallPresenter
         SurfaceChangeListener,
         InCallPresenter.InCallEventListener,
         VideoCallScreenDelegate,
-        InCallUiStateNotifierListener,
+        CallList.Listener,
         VideoEventListener,
         PictureModeHelper.Listener {
 
-  private static boolean mIsVideoMode = false;
+  private static boolean isVideoMode = false;
 
-  private final Handler mHandler = new Handler();
-  private VideoCallScreen mVideoCallScreen;
+  private final Handler handler = new Handler();
+  private VideoCallScreen videoCallScreen;
 
   /** The current context. */
-  private Context mContext;
+  private Context context;
 
   /** The call the video surfaces are currently related to */
-  private DialerCall mPrimaryCall;
+  private DialerCall primaryCall;
   /**
    * The {@link VideoCall} used to inform the video telephony layer of changes to the video
    * surfaces.
    */
-  private VideoCall mVideoCall;
+  private VideoCall videoCall;
   /** Determines if the current UI state represents a video call. */
-  private int mCurrentVideoState = VideoProfile.STATE_AUDIO_ONLY;
+  private int currentVideoState;
   /** DialerCall's current state */
-  private int mCurrentCallState = DialerCall.State.INVALID;
+  private int currentCallState = DialerCallState.INVALID;
   /** Determines the device orientation (portrait/lanscape). */
-  private int mDeviceOrientation = InCallOrientationEventListener.SCREEN_ORIENTATION_UNKNOWN;
+  private int deviceOrientation = InCallOrientationEventListener.SCREEN_ORIENTATION_UNKNOWN;
   /** Tracks the state of the preview surface negotiation with the telephony layer. */
-  private int mPreviewSurfaceState = PreviewSurfaceState.NONE;
+  private int previewSurfaceState = PreviewSurfaceState.NONE;
   /**
    * Determines whether video calls should automatically enter full screen mode after {@link
-   * #mAutoFullscreenTimeoutMillis} milliseconds.
+   * #autoFullscreenTimeoutMillis} milliseconds.
    */
-  private boolean mIsAutoFullscreenEnabled = false;
+  private boolean isAutoFullscreenEnabled = false;
   /**
    * Determines the number of milliseconds after which a video call will automatically enter
-   * fullscreen mode. Requires {@link #mIsAutoFullscreenEnabled} to be {@code true}.
+   * fullscreen mode. Requires {@link #isAutoFullscreenEnabled} to be {@code true}.
    */
-  private int mAutoFullscreenTimeoutMillis = 0;
+  private int autoFullscreenTimeoutMillis = 0;
   /**
    * Determines if the countdown is currently running to automatically enter full screen video mode.
    */
-  private boolean mAutoFullScreenPending = false;
+  private boolean autoFullScreenPending = false;
 
   /** Stores current orientation mode for primary call.*/
-  private int mCurrentOrientationMode = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+  private int currentOrientationMode = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
 
   /** Whether if the call is remotely held. */
-  private boolean mIsRemotelyHeld = false;
-
-  /**
-   * Caches information about whether InCall UI is in the background or foreground
-   */
-  private boolean mIsInBackground = true;
-
-  // Holds TRUE if default image should be used as static image else holds FALSE
-  private static boolean sUseDefaultImage = false;
-  // Holds TRUE if static image needs to be transmitted instead of video preview stream
-  private static boolean sShallTransmitStaticImage = false;
+  private boolean isRemotelyHeld = false;
 
   /**
    * Cache the size set in the "local_preview_surface_size" settings db property
    */
   private Point mFixedPreviewSurfaceSize;
+  // Holds TRUE if default image should be used as static image else holds FALSE
+  private static boolean sUseDefaultImage = false;
+  // Holds TRUE if static image needs to be transmitted instead of video preview stream
+  private static boolean sShallTransmitStaticImage = false;
+
+  // Screen Share Query
+  private static final int NO_PENDING_REQUEST = -1;
+  private static final int REQUEST_TO_START = 0;
+  private static final int REQUEST_TO_STOP = 1;
+
+  private static int mScreenShareQuery = NO_PENDING_REQUEST;
 
   private static PictureModeHelper mPictureModeHelper;
 
@@ -165,17 +177,17 @@ public class VideoCallPresenter
    * enter fullscreen mode if the dialpad is visible (doing so would make it impossible to exit the
    * dialpad).
    */
-  private Runnable mAutoFullscreenRunnable =
+  private Runnable autoFullscreenRunnable =
       new Runnable() {
         @Override
         public void run() {
-          if (mAutoFullScreenPending
+          if (autoFullScreenPending
               && !InCallPresenter.getInstance().isDialpadVisible()
-              && mIsVideoMode) {
+              && isVideoMode) {
 
             LogUtil.v("VideoCallPresenter.mAutoFullScreenRunnable", "entering fullscreen mode");
             InCallPresenter.getInstance().setFullScreen(true);
-            mAutoFullScreenPending = false;
+            autoFullScreenPending = false;
           } else {
             LogUtil.v(
                 "VideoCallPresenter.mAutoFullScreenRunnable",
@@ -185,90 +197,90 @@ public class VideoCallPresenter
       };
 
   private boolean isVideoCallScreenUiReady;
+  private VirtualDisplay mVirtualDisplay = null;
+  private ImsScreenShareManager mImsScreenShareManager = null;
+  private int mDisplayDpi;
+  private MediaProjection mMediaProjection;
+  private QtiImsExtConnector mQtiImsExtConnector;
+  private QtiImsExtManager mQtiImsExtManager = null;
+
+  /* ImsScreenShareListenerBase instance to handle screen share response */
+  private ImsScreenShareListenerBase mImsScreenShareListener =
+      new ImsScreenShareListenerBase() {
+
+     /* Handle screen share response */
+     @Override
+     public void onRecordingSurfaceChanged(int phoneId, Surface surface, int width, int height) {
+       LogUtil.i("VideoCallPresenter.onRecordingSurfaceChanged", "surface: " + surface);
+       if (mScreenShareQuery == REQUEST_TO_START && surface != null) {
+         setupVirtualDisplay(width, height, surface);
+       } else if (mScreenShareQuery == REQUEST_TO_STOP && surface == null) {
+         ScreenShareHelper.onPermissionChanged(null);
+         enableCamera(primaryCall, isCameraRequired());
+         clearScreenShareStates();
+       } else {
+         LogUtil.e("VideoCallPresenter.processRecordingSurfaceChanged",
+         "mismatch in expected surface from lower layer");
+       }
+       mScreenShareQuery = NO_PENDING_REQUEST;
+     }
+  };
+
+  private void maybeCreateQtiImsExtConnector(Context context) {
+    try {
+      mQtiImsExtConnector = new QtiImsExtConnector(context,
+          new QtiImsExtConnector.IListener() {
+            @Override
+            public void onConnectionAvailable(QtiImsExtManager qtiImsExtManager) {
+              mQtiImsExtManager = qtiImsExtManager;
+              setScreenShareListener();
+            }
+            @Override
+            public void onConnectionUnavailable() {
+              mQtiImsExtManager = null;
+            }
+          });
+      mQtiImsExtConnector.connect();
+    } catch (QtiImsException e) {
+      LogUtil.e("BottomSheetHelper.createQtiImsExtConnector",
+          "Unable to create QtiImsExtConnector");
+    }
+  }
+
+  private void setupVirtualDisplay(int width, int height, Surface surface) {
+    LogUtil.i("VideoCallPresenter.setupVirtualDisplay", " width: " + width + " height: " + height);
+      if (ScreenShareHelper.getProjectionManager() != null) {
+        mMediaProjection = ScreenShareHelper.getProjectionManager().getMediaProjection(
+                               Activity.RESULT_OK,
+                               ScreenShareHelper.getPermission());
+        mVirtualDisplay = mMediaProjection.createVirtualDisplay("ScreenCapture", width, height,
+                              mDisplayDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                              surface, null, null);
+     }
+   }
 
   private boolean isCameraRequired(int videoState, int sessionModificationState) {
-    return !mIsInBackground && !shallTransmitStaticImage() &&
-        !isModifyToVideoRxType(mPrimaryCall) &&
+    return !shallTransmitStaticImage() &&
+        !ScreenShareHelper.screenShareRequested() &&
+        !isModifyToVideoRxType(primaryCall) &&
         (VideoProfile.isBidirectional(videoState)
         || VideoProfile.isTransmissionEnabled(videoState)
         || (VideoProfile.isAudioOnly(videoState) && isVideoUpgrade(sessionModificationState)));
-  }
-
-  /**
-   * Opens camera if the camera has not yet been set on the {@link VideoCall}; negotiation has
-   * not yet started and if camera is required
-   */
-  private void maybeEnableCamera() {
-    if (mPreviewSurfaceState == PreviewSurfaceState.NONE && isCameraRequired()) {
-      enableCamera(mVideoCall, true);
-    }
-  }
-
-  /**
-   * This method gets invoked when visibility of InCallUI is changed. For eg.
-   * when UE moves in/out of the foreground, display either turns ON/OFF
-   * @param showing true if InCallUI is visible, false  otherwise.
-   */
-  @Override
-  public void onUiShowing(boolean showing) {
-    LogUtil.i("VideoCallPresenter.onUiShowing", " showing = " + showing + " mPrimaryCall = " +
-        mPrimaryCall + " mPreviewSurfaceState = " + mPreviewSurfaceState);
-
-    mIsInBackground = !showing;
-    boolean wasTransmitStaticImage = sShallTransmitStaticImage;
-
-    int phoneId = BottomSheetHelper.getInstance().getPhoneId();
-    if (!QtiImsExtUtils.shallShowStaticImageUi(phoneId, mContext) &&
-        QtiImsExtUtils.shallTransmitStaticImage(phoneId, mContext)) {
-      sShallTransmitStaticImage = sUseDefaultImage = mIsInBackground;
-    }
-
-    if (!isVideoCall(mPrimaryCall) && !isVideoUpgrade(mPrimaryCall)) {
-      LogUtil.w("VideoCallPresenter.onUiShowing", " received for voice call");
-      if (mPreviewSurfaceState != PreviewSurfaceState.NONE) {
-         enableCamera(mVideoCall, false);
-      }
-      return;
-    }
-
-    if (!QtiImsExtUtils.shallShowStaticImageUi(phoneId, mContext) &&
-        QtiImsExtUtils.shallTransmitStaticImage(phoneId, mContext) &&
-        isTransmissionEnabled(mPrimaryCall) &&
-        (showing || isActiveVideoCall(mPrimaryCall))) {
-      // Set pause image only for ACTIVE calls going to background.
-      // While coming to foreground, unset pause image for all calls.
-      setPauseImage();
-      if(wasTransmitStaticImage != sShallTransmitStaticImage && mPrimaryCall != null) {
-        showVideoUi(
-            mPrimaryCall.getVideoState(),
-            mPrimaryCall.getState(),
-            mPrimaryCall.getVideoTech().getSessionModificationState(),
-            mPrimaryCall.isRemotelyHeld());
-      }
-    }
-
-    if (showing) {
-      maybeEnableCamera();
-    } else if (mPreviewSurfaceState != PreviewSurfaceState.NONE) {
-      checkForOrientationAllowedChange(mPrimaryCall);
-      enableCamera(mVideoCall, false);
-    }
   }
 
   private void setPauseImage(VideoCall videoCall) {
     String uriStr = null;
     Uri uri = null;
 
-    LogUtil.d("VideoCallPresenter.setPauseImage"," videoCall = " + videoCall);
     if (!QtiImsExtUtils.shallTransmitStaticImage(
-            BottomSheetHelper.getInstance().getPhoneId(), mContext)
+            BottomSheetHelper.getInstance().getPhoneId(), context)
         || videoCall == null) {
         return;
     }
 
     if (shallTransmitStaticImage()) {
         uriStr = sUseDefaultImage ? "" :
-            QtiImsExtUtils.getStaticImageUriStr(mContext.getContentResolver());
+            QtiImsExtUtils.getStaticImageUriStr(context.getContentResolver());
     }
 
     uri = uriStr != null ? Uri.parse(uriStr) : null;
@@ -279,7 +291,7 @@ public class VideoCallPresenter
 
   @Override
   public void setPauseImage() {
-    setPauseImage(mVideoCall);
+    setPauseImage(videoCall);
   }
 
   @Override
@@ -305,16 +317,13 @@ public class VideoCallPresenter
    * @param callState The current call state.
    * @return {@code true} if the incoming video surface should be shown, {@code false} otherwise.
    */
-  public static boolean showIncomingVideo(int videoState, int callState) {
-    if (!CompatUtils.isVideoCompatible()) {
-      return false;
-    }
+  static boolean showIncomingVideo(int videoState, int callState) {
 
     boolean isPaused = VideoProfile.isPaused(videoState);
-    boolean isCallActive = callState == DialerCall.State.ACTIVE;
-    //Show incoming Video for dialing calls to support early media
+    boolean isCallActive = callState == DialerCallState.ACTIVE;
+    // Show incoming Video for dialing calls to support early media
     boolean isCallOutgoingPending =
-        DialerCall.State.isDialing(callState) || callState == DialerCall.State.CONNECTING;
+        DialerCallState.isDialing(callState) || callState == DialerCallState.CONNECTING;
 
     return !isPaused
         && (isCallActive || isCallOutgoingPending)
@@ -335,23 +344,15 @@ public class VideoCallPresenter
       return false;
     }
 
-    if (!CompatUtils.isVideoCompatible()) {
-      return false;
-    }
-
     return VideoProfile.isTransmissionEnabled(videoState)
         || isVideoUpgrade(sessionModificationState);
   }
 
-  public static boolean showOutgoingVideo(
+  private static boolean showOutgoingVideo(
       Context context, int videoState, int sessionModificationState,
       boolean isModifyToVideoRxType) {
     if (!VideoUtils.hasCameraPermissionAndShownPrivacyToast(context)) {
       LogUtil.i("VideoCallPresenter.showOutgoingVideo", "Camera permission is disabled by user.");
-      return false;
-    }
-
-    if (!CompatUtils.isVideoCompatible()) {
       return false;
     }
 
@@ -454,30 +455,23 @@ public class VideoCallPresenter
    */
   @Override
   public void initVideoCallScreenDelegate(Context context, VideoCallScreen videoCallScreen) {
-    mContext = context;
-    mPictureModeHelper = new PictureModeHelper(mContext);
-    mVideoCallScreen = videoCallScreen;
-    mIsAutoFullscreenEnabled =
-        mContext.getResources().getBoolean(R.bool.video_call_auto_fullscreen);
-    mAutoFullscreenTimeoutMillis =
-        mContext.getResources().getInteger(R.integer.video_call_auto_fullscreen_timeout);
+    this.context = context;
+    this.videoCallScreen = videoCallScreen;
+    mPictureModeHelper = new PictureModeHelper(context);
+    isAutoFullscreenEnabled =
+        this.context.getResources().getBoolean(R.bool.video_call_auto_fullscreen);
+    autoFullscreenTimeoutMillis =
+        this.context.getResources().getInteger(R.integer.video_call_auto_fullscreen_timeout);
     setFixedPreviewSurfaceSize();
   }
 
   /** Called when the user interface is ready to be used. */
   @Override
-  public void onVideoCallScreenUiReady(VideoCallScreen videoCallScreen) {
+  public void onVideoCallScreenUiReady() {
     LogUtil.v("VideoCallPresenter.onVideoCallScreenUiReady", "");
     Assert.checkState(!isVideoCallScreenUiReady);
 
-    // Do not register any listeners if video calling is not compatible to safeguard against
-    // any accidental calls of video calling code.
-    if (!CompatUtils.isVideoCompatible()) {
-      return;
-    }
-
-    mVideoCallScreen = videoCallScreen;
-    mDeviceOrientation = InCallOrientationEventListener.getCurrentOrientation();
+    deviceOrientation = InCallOrientationEventListener.getCurrentOrientation();
 
     // Register for call state changes last
     InCallPresenter.getInstance().addListener(this);
@@ -489,16 +483,19 @@ public class VideoCallPresenter
     InCallPresenter.getInstance().getLocalVideoSurfaceTexture().setDelegate(new LocalDelegate());
     InCallPresenter.getInstance().getRemoteVideoSurfaceTexture().setDelegate(new RemoteDelegate());
 
+    CallList.getInstance().addListener(this);
+
     // Register for surface and video events from {@link InCallVideoCallListener}s.
     InCallVideoCallCallbackNotifier.getInstance().addSurfaceChangeListener(this);
     mPictureModeHelper.setUp(this);
+    currentVideoState = VideoProfile.STATE_AUDIO_ONLY;
+    currentCallState = DialerCallState.INVALID;
 
     InCallPresenter.InCallState inCallState = InCallPresenter.getInstance().getInCallState();
     onStateChange(inCallState, inCallState, CallList.getInstance());
-    InCallUiStateNotifier.getInstance().addListener(this, true);
     isVideoCallScreenUiReady = true;
     InCallVideoCallCallbackNotifier.getInstance().addVideoEventListener(this,
-        VideoProfile.isVideo(mCurrentVideoState));
+        VideoProfile.isVideo(currentVideoState));
   }
 
   /** Called when the user interface is no longer ready to be used. */
@@ -507,10 +504,7 @@ public class VideoCallPresenter
     LogUtil.v("VideoCallPresenter.onVideoCallScreenUiUnready", "");
     Assert.checkState(isVideoCallScreenUiReady);
 
-    if (!CompatUtils.isVideoCompatible()) {
-      return;
-    }
-    onUiShowing(false);
+    checkForOrientationAllowedChange(primaryCall);
     cancelAutoFullScreen();
 
     InCallPresenter.getInstance().removeListener(this);
@@ -520,30 +514,29 @@ public class VideoCallPresenter
     InCallPresenter.getInstance().removeInCallEventListener(this);
     InCallPresenter.getInstance().getLocalVideoSurfaceTexture().setDelegate(null);
 
+    CallList.getInstance().removeListener(this);
+
     InCallVideoCallCallbackNotifier.getInstance().removeSurfaceChangeListener(this);
-    InCallUiStateNotifier.getInstance().removeListener(this);
     InCallVideoCallCallbackNotifier.getInstance().removeVideoEventListener(this);
     mPictureModeHelper.tearDown(this);
 
     // Ensure that the call's camera direction is updated (most likely to UNKNOWN). Normally this
     // happens after any call state changes but we're unregistering from InCallPresenter above so
-    // we won't get any more call state changes. See b/32957114.
-    if (mPrimaryCall != null) {
+    // we won't get any more call state changes. See a bug.
+    if (primaryCall != null) {
       maybeUnsetPauseImage();
-      updateCameraSelection(mPrimaryCall);
+      updateCameraSelection(primaryCall);
     }
     InCallPresenter.getInstance().enableScreenTimeout(true);
 
-    mVideoCallScreen = null;
     isVideoCallScreenUiReady = false;
   }
 
   public static void cleanUp() {
     LogUtil.v("VideoCallPresenter.cleanUp", "");
-   sShallTransmitStaticImage = false;
-   sUseDefaultImage = false;
-   mIsIncomingVideoAvailable = false;
-   mIsVideoMode = false;
+    sShallTransmitStaticImage = false;
+    sUseDefaultImage = false;
+    isVideoMode = false;
   }
 
   /**
@@ -556,7 +549,7 @@ public class VideoCallPresenter
       InCallPresenter.getInstance().setFullScreen(true);
     } else {
       InCallPresenter.getInstance().setFullScreen(false);
-      maybeAutoEnterFullscreen(mPrimaryCall);
+      maybeAutoEnterFullscreen(primaryCall);
       // If Activity is not multiwindow, fullscreen will be driven by SystemUI visibility changes
       // instead. See #onSystemUiVisibilityChange(boolean)
 
@@ -571,7 +564,7 @@ public class VideoCallPresenter
     LogUtil.i("VideoCallPresenter.onSystemUiVisibilityChange", "visible: " + visible);
     if (visible) {
       InCallPresenter.getInstance().setFullScreen(false);
-      maybeAutoEnterFullscreen(mPrimaryCall);
+      maybeAutoEnterFullscreen(primaryCall);
     }
   }
 
@@ -592,7 +585,7 @@ public class VideoCallPresenter
 
   @Override
   public int getDeviceOrientation() {
-    return mDeviceOrientation;
+    return deviceOrientation;
   }
 
   /**
@@ -602,18 +595,18 @@ public class VideoCallPresenter
   @Override
   public void onCameraPermissionGranted() {
     LogUtil.i("VideoCallPresenter.onCameraPermissionGranted", "");
-    if (mPrimaryCall == null) {
+    if (primaryCall == null) {
       LogUtil.w("VideoCallPresenter.onCameraPermissionGranted",
           "Primary call is null. Not enabling camera");
       return;
     }
-    PermissionsUtil.setCameraPrivacyToastShown(mContext);
-    enableCamera(mPrimaryCall.getVideoCall(), isCameraRequired());
+    PermissionsUtil.setCameraPrivacyToastShown(context);
+    enableCamera(primaryCall, isCameraRequired());
     showVideoUi(
-        mPrimaryCall.getVideoState(),
-        mPrimaryCall.getState(),
-        mPrimaryCall.getVideoTech().getSessionModificationState(),
-        mPrimaryCall.isRemotelyHeld());
+        primaryCall.getVideoState(),
+        primaryCall.getState(),
+        primaryCall.getVideoTech().getSessionModificationState(),
+        primaryCall.isRemotelyHeld());
     InCallPresenter.getInstance().getInCallCameraManager().onCameraPermissionGranted();
   }
 
@@ -623,10 +616,10 @@ public class VideoCallPresenter
    */
   @Override
   public void resetAutoFullscreenTimer() {
-    if (mAutoFullScreenPending) {
+    if (autoFullScreenPending) {
       LogUtil.i("VideoCallPresenter.resetAutoFullscreenTimer", "resetting");
-      mHandler.removeCallbacks(mAutoFullscreenRunnable);
-      mHandler.postDelayed(mAutoFullscreenRunnable, mAutoFullscreenTimeoutMillis);
+      handler.removeCallbacks(autoFullscreenRunnable);
+      handler.postDelayed(autoFullscreenRunnable, autoFullscreenTimeoutMillis);
     }
   }
 
@@ -640,6 +633,13 @@ public class VideoCallPresenter
   @Override
   public void onIncomingCall(
       InCallPresenter.InCallState oldState, InCallPresenter.InCallState newState, DialerCall call) {
+    // If video call screen ui is already destroyed, this shouldn't be called. But the UI may be
+    // updated synchronized by {@link CallCardPresenter#onIncomingCall} before this is called, this
+    // could still be called. Thus just do nothing in this case.
+    if (!isVideoCallScreenUiReady) {
+      LogUtil.i("VideoCallPresenter.onIncomingCall", "UI is not ready");
+      return;
+    }
     // same logic should happen as with onStateChange()
     onStateChange(oldState, newState, CallList.getInstance());
   }
@@ -666,7 +666,9 @@ public class VideoCallPresenter
       if (isVideoMode()) {
         exitVideoMode();
       }
-      cleanUp();
+
+      sShallTransmitStaticImage = false;
+      sUseDefaultImage = false;
       InCallPresenter.getInstance().cleanupSurfaces();
     }
 
@@ -697,16 +699,16 @@ public class VideoCallPresenter
       currentCall = primary = callList.getActiveCall();
     }
 
-    final boolean primaryChanged = !Objects.equals(mPrimaryCall, primary);
+    final boolean primaryChanged = !Objects.equals(primaryCall, primary);
     LogUtil.i(
         "VideoCallPresenter.onStateChange",
-        "primaryChanged: %b, primary: %s, mPrimaryCall: %s",
+        "primaryChanged: %b, primary: %s, primaryCall: %s",
         primaryChanged,
         primary,
-        mPrimaryCall);
+        primaryCall);
     if (primaryChanged) {
       onPrimaryCallChanged(primary);
-    } else if (mPrimaryCall != null) {
+    } else if (primaryCall != null) {
       updateVideoCall(primary);
     }
     updateCallCache(primary);
@@ -727,17 +729,13 @@ public class VideoCallPresenter
   @Override
   public void onFullscreenModeChanged(boolean isFullscreenMode) {
     cancelAutoFullScreen();
-    if (mPrimaryCall != null) {
+    if (primaryCall != null) {
       updateFullscreenAndGreenScreenMode(
-          mPrimaryCall.getState(), mPrimaryCall.getVideoTech().getSessionModificationState());
+          primaryCall.getState(), primaryCall.getVideoTech().getSessionModificationState());
     } else {
-      updateFullscreenAndGreenScreenMode(State.INVALID, SessionModificationState.NO_REQUEST);
+      updateFullscreenAndGreenScreenMode(
+          DialerCallState.INVALID, SessionModificationState.NO_REQUEST);
     }
-  }
-
-  @Override
-  public void onSessionModificationStateChange(DialerCall call) {
-    //No-op
   }
 
   /**
@@ -749,38 +747,136 @@ public class VideoCallPresenter
    @Override
    public void onSendStaticImageStateChanged(boolean shallTransmitStaticImage) {
     LogUtil.d("VideoCallPresenter.onSendStaticImageStateChanged"," shallTransmitStaticImage: "
-        + shallTransmitStaticImage + " mPrimaryCall: " + mPrimaryCall);
+        + shallTransmitStaticImage + " primaryCall: " + primaryCall);
 
     sShallTransmitStaticImage = shallTransmitStaticImage;
 
-    if (!isActiveVideoCall(mPrimaryCall)) {
+    if (!isActiveVideoCall(primaryCall)) {
       LogUtil.w("VideoCallPresenter.onSendStaticImageStateChanged",
           " received for non-active video call");
       return;
     }
 
-    if (mVideoCall == null || mVideoCallScreen == null) {
+    if (videoCall == null || videoCallScreen == null) {
       LogUtil.w("VideoCallPresenter.onSendStaticImageStateChanged",
-          " VideoCall/mVideoCallScreen is null");
+          " mVideoCall/mVideoCallScreen is null");
       return;
     }
 
-    enableCamera(mVideoCall, isCameraRequired(mCurrentVideoState,
+    enableCamera(primaryCall, isCameraRequired(currentVideoState,
         SessionModificationState.NO_REQUEST));
 
     if (shallTransmitStaticImage) {
       // Handle showing static image in preview based on external storage permissions
-      mVideoCallScreen.onRequestReadStoragePermission();
+      videoCallScreen.onRequestReadStoragePermission();
     } else {
       /* When not required to transmit static image, update video ui visibility
          to reflect streaming video in preview */
       showVideoUi(
-          mCurrentVideoState,
-          mCurrentCallState,
+          currentVideoState,
+          currentCallState,
           SessionModificationState.NO_REQUEST,
           false /* isRemotelyHeld */);
-      mVideoCall.setPauseImage(null);
+      videoCall.setPauseImage(null);
     }
+  }
+
+  @Override
+  public void onOutgoingVideoSourceChanged(int videoSource) {
+    LogUtil.i("VideoCallPresenter.onOutgoingVideoSourceChanged",
+        " videoSource = " + videoSource);
+    if (videoSource == ScreenShareHelper.SCREEN) {
+      if (primaryCall == null) {
+        LogUtil.d("VideoCallPresenter.onOutgoingVideoSourceChanged",
+            "primaryCall is null");
+        return;
+      }
+      if (primaryCall.isVideoCall()) {
+        enterScreenShare();
+      }
+    } else {
+      exitScreenShare();
+    }
+  }
+
+  private void enterScreenShare() {
+    LogUtil.i("VideoCallPresenter.enterScreenShare", "enter screen share");
+    if (mQtiImsExtConnector == null) {
+      maybeCreateQtiImsExtConnector(context);
+    }
+    enableCamera(primaryCall, false);
+  }
+
+  private void setScreenShareListener() {
+     if (mQtiImsExtManager == null) {
+       LogUtil.i("VideoCallPresenter.setScreenShareListener",
+           "mQtiImsExtManager is null");
+       return;
+     }
+     try {
+       mImsScreenShareManager = mQtiImsExtManager.createImsScreenShareManager(
+           BottomSheetHelper.getInstance().getPhoneId());
+     } catch (QtiImsException e) {
+       LogUtil.e("VideoCallPresenter.setScreenShareListener", "exception " + e);
+     }
+     try {
+       LogUtil.i("VideoCallPresenter.setScreenShareListener", "setScreenShareListener");
+       mImsScreenShareManager.setScreenShareListener(mImsScreenShareListener);
+       startScreenShare();
+     } catch (QtiImsException e) {
+       LogUtil.e("VideoCallPresenter.setScreenShareListener", "exception " + e);
+     }
+   }
+
+   /**
+    * Start Screen Share by requesting pre configured
+    * Surface from vendor,
+    * if a valid Surface is returned via callback
+    * onRecordingSurfaceChanged(), UI tries to
+    * setup virtual display.
+    */
+   private void startScreenShare() {
+     DisplayMetrics metrics = new DisplayMetrics();
+     Activity activity = videoCallScreen.getVideoCallScreenFragment().getActivity();
+     if (activity == null) {
+       LogUtil.w("VideoCallPresenter.startScreenShare", "activity is null");
+       return;
+     }
+     activity.getWindowManager().getDefaultDisplay().getMetrics(metrics);
+     mDisplayDpi = metrics.densityDpi;
+     try {
+       if (mImsScreenShareManager == null) {
+         LogUtil.i("VideoCallPresenter.startScreenShare",
+             "mImsScreenShareManager is null");
+         return;
+       }
+       LogUtil.i("VideoCallPresenter.startScreenShare", "startScreenShare");
+       mImsScreenShareManager.startScreenShare(metrics.widthPixels, metrics.heightPixels);
+       mScreenShareQuery = REQUEST_TO_START;
+     } catch (QtiImsException e) {
+       LogUtil.e("VideoCallPresenter.startScreenShare", "exception " + e);
+       clearScreenShareStates();
+     }
+  }
+
+  /**
+   * Stop Screen Share if a null Surface is returned
+   * via callback onRecordingSurfaceChanged().
+   */
+  private void exitScreenShare() {
+     try {
+       if (mImsScreenShareManager == null) {
+         LogUtil.i("VideoCallPresenter.exitScreenShare",
+             "mImsScreenShareManager is null");
+         return;
+       }
+       LogUtil.i("VideoCallPresenter.stopScreenShare", "stopScreenShare");
+       mImsScreenShareManager.stopScreenShare();
+       mScreenShareQuery = REQUEST_TO_STOP;
+     } catch (QtiImsException e) {
+       LogUtil.e("VideoCallPresenter.stopScreenShare", "exception " + e);
+       clearScreenShareStates();
+     }
   }
 
   @Override
@@ -790,19 +886,19 @@ public class VideoCallPresenter
     // Use default image when permissions are not granted
     sUseDefaultImage = !isGranted;
     if (!isGranted) {
-      QtiCallUtils.displayToast(mContext, R.string.qti_ims_defaultImage_fallback);
+      QtiCallUtils.displayToast(context, R.string.qti_ims_defaultImage_fallback);
     }
 
     showVideoUi(
-        mCurrentVideoState,
-        mCurrentCallState,
+        currentVideoState,
+        currentCallState,
         SessionModificationState.NO_REQUEST,
         false /* isRemotelyHeld */);
   }
 
   private void checkForVideoStateChange(DialerCall call) {
     final boolean shouldShowVideoUi = shouldShowVideoUiForCall(call);
-    final boolean hasVideoStateChanged = mCurrentVideoState != call.getVideoState();
+    final boolean hasVideoStateChanged = currentVideoState != call.getVideoState();
 
     LogUtil.v(
         "VideoCallPresenter.checkForVideoStateChange",
@@ -811,15 +907,10 @@ public class VideoCallPresenter
         shouldShowVideoUi,
         hasVideoStateChanged,
         isVideoMode(),
-        VideoProfile.videoStateToString(mCurrentVideoState),
+        VideoProfile.videoStateToString(currentVideoState),
         VideoProfile.videoStateToString(call.getVideoState()));
     if (!hasVideoStateChanged) {
       return;
-    }
-
-    // Wakes up the screen,if its off, when user upgrades to VT call.
-    if (VideoProfile.isAudioOnly(mCurrentVideoState) && isVideoCall(call)) {
-      InCallPresenter.getInstance().wakeUpScreen();
     }
 
     maybeUnsetPauseImage();
@@ -834,21 +925,21 @@ public class VideoCallPresenter
 
   private void maybeUnsetPauseImage() {
     if (QtiImsExtUtils.shallTransmitStaticImage(
-            BottomSheetHelper.getInstance().getPhoneId(), mContext) &&
+            BottomSheetHelper.getInstance().getPhoneId(), context) &&
         shallTransmitStaticImage() &&
-        !isTransmissionEnabled(mPrimaryCall) &&
-        mVideoCall != null) {
+        !isTransmissionEnabled(primaryCall) &&
+        videoCall != null) {
       /* Unset the pause image when Tx is disabled for eg. when video call
          that is transmitting static image is downgraded to Rx or to voice */
-      mVideoCall.setPauseImage(null);
+      videoCall.setPauseImage(null);
     }
   }
 
   private void checkForCallStateChange(DialerCall call) {
     final boolean shouldShowVideoUi = shouldShowVideoUiForCall(call);
     final boolean hasCallStateChanged =
-        mCurrentCallState != call.getState() || mIsRemotelyHeld != call.isRemotelyHeld();
-    mIsRemotelyHeld = call.isRemotelyHeld();
+        currentCallState != call.getState() || isRemotelyHeld != call.isRemotelyHeld();
+    isRemotelyHeld = call.isRemotelyHeld();
 
     LogUtil.v(
         "VideoCallPresenter.checkForCallStateChange",
@@ -870,7 +961,7 @@ public class VideoCallPresenter
       String newCameraId = cameraManager.getActiveCameraId();
 
       if (!Objects.equals(prevCameraId, newCameraId) && isActiveVideoCall(call)) {
-        enableCamera(call.getVideoCall(), true);
+        enableCamera(call, true);
       }
     }
 
@@ -903,34 +994,39 @@ public class VideoCallPresenter
       checkForOrientationAllowedChange(newPrimaryCall);
       updateCameraSelection(newPrimaryCall);
 
+      if (ScreenShareHelper.screenShareRequested()) {
+        LogUtil.i("VideoCallPresenter.onPrimaryCallChanged", "starting screen share");
+        enterScreenShare();
+      }
+
       // Existing call is put on hold and new call is in incoming state does mean that
       // user is trying to answer the call
       if (isIncomingVideoCall(newPrimaryCall) &&
-          isTransmissionEnabled(mPrimaryCall) &&
-          mPrimaryCall.getState() == DialerCall.State.ONHOLD) {
+          isTransmissionEnabled(primaryCall) &&
+          primaryCall.getState() == DialerCallState.ONHOLD) {
         // Close camera on mPrimaryCall
         LogUtil.v("VideoCallPresenter.onPrimaryCallChanged", "closing camera");
-        enableCamera(mPrimaryCall.getVideoCall(), false);
+        enableCamera(primaryCall, false);
       }
       adjustVideoMode(newPrimaryCall);
     }
   }
 
   private boolean isVideoMode() {
-    return mIsVideoMode;
+    return isVideoMode;
   }
 
   private void updateCallCache(DialerCall call) {
     if (call == null) {
-      mCurrentVideoState = VideoProfile.STATE_AUDIO_ONLY;
-      mCurrentCallState = DialerCall.State.INVALID;
-      mVideoCall = null;
-      mPrimaryCall = null;
+      currentVideoState = VideoProfile.STATE_AUDIO_ONLY;
+      currentCallState = DialerCallState.INVALID;
+      videoCall = null;
+      primaryCall = null;
     } else {
-      mCurrentVideoState = call.getVideoState();
-      mVideoCall = call.getVideoCall();
-      mCurrentCallState = call.getState();
-      mPrimaryCall = call;
+      currentVideoState = call.getVideoState();
+      videoCall = call.getVideoCall();
+      currentCallState = call.getState();
+      primaryCall = call;
     }
   }
 
@@ -945,15 +1041,15 @@ public class VideoCallPresenter
   public void onDetailsChanged(DialerCall call, android.telecom.Call.Details details) {
     LogUtil.v(
         "VideoCallPresenter.onDetailsChanged",
-        "call: %s, details: %s, mPrimaryCall: %s",
+        "call: %s, details: %s, primaryCall: %s",
         call,
         details,
-        mPrimaryCall);
+        primaryCall);
     if (call == null) {
       return;
     }
     // If the details change is not for the currently active call no update is required.
-    if (!call.equals(mPrimaryCall)) {
+    if (!call.equals(primaryCall)) {
       LogUtil.v("VideoCallPresenter.onDetailsChanged", "details not for current active call");
       return;
     }
@@ -973,20 +1069,22 @@ public class VideoCallPresenter
   }
 
   private void checkForOrientationAllowedChange(@Nullable DialerCall call) {
-    int orientation = OrientationModeHandler.getInstance().getOrientation(call);
     LogUtil.d("VideoCallPresenter.checkForOrientationAllowedChange","call : "+ call +
-        " mCurrentOrientationMode : " + mCurrentOrientationMode + " orientation : " + orientation);
-    if (orientation != mCurrentOrientationMode &&
+        " currentOrientationMode = " + currentOrientationMode);
+    int orientation = OrientationModeHandler.getInstance().getOrientation(call);
+    // Call could be null when video call ended. This check could prevent unwanted orientation
+    // change before incall UI gets destroyed.
+    if (call != null && orientation != currentOrientationMode &&
         InCallPresenter.getInstance().setInCallAllowsOrientationChange(orientation)) {
-      mCurrentOrientationMode = orientation;
+      currentOrientationMode = orientation;
     }
   }
 
   private void updateFullscreenAndGreenScreenMode(
       int callState, @SessionModificationState int sessionModificationState) {
-    if (mVideoCallScreen != null) {
+    if (videoCallScreen != null) {
       boolean hasVideoCallSentVideoUpgradeRequest =
-          isVideoCall(mPrimaryCall)
+          isVideoCall(primaryCall)
           && VideoUtils.hasSentVideoUpgradeRequest(sessionModificationState);
 
       boolean shouldShowFullscreen = InCallPresenter.getInstance().isFullscreen();
@@ -1000,22 +1098,22 @@ public class VideoCallPresenter
        *    early media
        */
       boolean shouldShowGreenScreen =
-          ((callState == State.DIALING
-              || callState == State.CONNECTING) && !mIsIncomingVideoAvailable)
-              || callState == State.INCOMING
+          ((callState == DialerCallState.DIALING
+              || callState == DialerCallState.CONNECTING) && !mIsIncomingVideoAvailable)
+              || callState == DialerCallState.INCOMING
               || (!hasVideoCallSentVideoUpgradeRequest
-              && !isModifyToVideoRxType(mPrimaryCall)
+              && !isModifyToVideoRxType(primaryCall)
               && isVideoUpgrade(sessionModificationState));
-      mVideoCallScreen.updateFullscreenAndGreenScreenMode(
+      videoCallScreen.updateFullscreenAndGreenScreenMode(
           shouldShowFullscreen, shouldShowGreenScreen);
     }
   }
 
   @Override
   public boolean isIncomingVideoAvailableForEarlyMedia() {
-      return mPrimaryCall != null
-          && (mPrimaryCall.getState() == DialerCall.State.DIALING
-              || mPrimaryCall.getState() == DialerCall.State.CONNECTING)
+      return primaryCall != null
+          && (primaryCall.getState() == DialerCallState.DIALING
+                  || primaryCall.getState() == DialerCallState.CONNECTING)
           && mIsIncomingVideoAvailable;
   }
 
@@ -1026,8 +1124,8 @@ public class VideoCallPresenter
         "VideoCallPresenter.checkForVideoCallChange",
         "videoCall: %s, mVideoCall: %s",
         videoCall,
-        mVideoCall);
-    if (!Objects.equals(videoCall, mVideoCall)) {
+        this.videoCall);
+    if (!Objects.equals(videoCall, this.videoCall)) {
       changeVideoCall(call);
     }
   }
@@ -1044,11 +1142,11 @@ public class VideoCallPresenter
         "VideoCallPresenter.changeVideoCall",
         "videoCall: %s, mVideoCall: %s",
         videoCall,
-        mVideoCall);
-    final boolean hasChanged = mVideoCall == null && videoCall != null;
+        this.videoCall);
+    final boolean hasChanged = this.videoCall == null && videoCall != null;
 
-    mVideoCall = videoCall;
-    if (mVideoCall == null) {
+    this.videoCall = videoCall;
+    if (this.videoCall == null) {
       LogUtil.v("VideoCallPresenter.changeVideoCall", "video call or primary call is null. Return");
       return;
     }
@@ -1059,16 +1157,15 @@ public class VideoCallPresenter
   }
 
   private boolean isCameraRequired() {
-    return mPrimaryCall != null
+    return primaryCall != null
         && isCameraRequired(
-            mPrimaryCall.getVideoState(),
-            mPrimaryCall.getVideoTech().getSessionModificationState());
+            primaryCall.getVideoState(), primaryCall.getVideoTech().getSessionModificationState());
   }
 
   /**
    * Adjusts the current video mode by setting up the preview and display surfaces as necessary.
    * Expected to be called whenever the video state associated with a call changes (e.g. a user
-   * turns their camera on or off) to ensure the correct surfaces are shown/hidden. TODO: Need
+   * turns their camera on or off) to ensure the correct surfaces are shown/hidden. TODO(vt): Need
    * to adjust size and orientation of preview surface here.
    */
   private void adjustVideoMode(DialerCall call) {
@@ -1080,7 +1177,7 @@ public class VideoCallPresenter
         "videoCall: %s, videoState: %d",
         videoCall,
         newVideoState);
-    if (mVideoCallScreen == null) {
+    if (videoCallScreen == null) {
       LogUtil.e("VideoCallPresenter.adjustVideoMode", "error VideoCallScreen is null so returning");
       return;
     }
@@ -1102,22 +1199,21 @@ public class VideoCallPresenter
       }
 
       Assert.checkState(
-          mDeviceOrientation != InCallOrientationEventListener.SCREEN_ORIENTATION_UNKNOWN);
-      videoCall.setDeviceOrientation(mDeviceOrientation);
+          deviceOrientation != InCallOrientationEventListener.SCREEN_ORIENTATION_UNKNOWN);
+      videoCall.setDeviceOrientation(deviceOrientation);
       enableCamera(
-          videoCall,
-          isCameraRequired(newVideoState, call.getVideoTech().getSessionModificationState()));
+          call, isCameraRequired(newVideoState, call.getVideoTech().getSessionModificationState()));
 
       if (QtiImsExtUtils.shallShowStaticImageUi(BottomSheetHelper.getInstance().getPhoneId(),
-          mContext) && shallTransmitStaticImage()) {
+          context) && shallTransmitStaticImage()) {
         /* when call downgrades and later upgrades, mVideoCall can be null that prevents setting
            pause image to lower layers so invoke setPauseImage with videocall obj as parameter */
         setPauseImage(videoCall);
       }
     }
-    int previousVideoState = mCurrentVideoState;
-    mCurrentVideoState = newVideoState;
-    mIsVideoMode = true;
+    int previousVideoState = currentVideoState;
+    currentVideoState = newVideoState;
+    isVideoMode = true;
 
     // adjustVideoMode may be called if we are already in a 1-way video state.  In this case
     // we do not want to trigger auto-fullscreen mode.
@@ -1142,31 +1238,26 @@ public class VideoCallPresenter
     return false;
   }
 
-  private void enableCamera(VideoCall videoCall, boolean isCameraRequired) {
-    LogUtil.v(
-        "VideoCallPresenter.enableCamera",
-        "videoCall: %s, enabling: %b",
-        videoCall,
-        isCameraRequired);
-    if (videoCall == null) {
-      LogUtil.i("VideoCallPresenter.enableCamera", "videoCall is null.");
+  private void enableCamera(DialerCall call, boolean isCameraRequired) {
+    LogUtil.v("VideoCallPresenter.enableCamera", "call: %s, enabling: %b", call, isCameraRequired);
+    if (call == null) {
+      LogUtil.i("VideoCallPresenter.enableCamera", "call is null");
       return;
     }
 
-    boolean hasCameraPermission = VideoUtils.hasCameraPermissionAndShownPrivacyToast(mContext);
+    boolean hasCameraPermission = VideoUtils.hasCameraPermissionAndShownPrivacyToast(context);
     if (!hasCameraPermission) {
-      videoCall.setCamera(null);
-      mPreviewSurfaceState = PreviewSurfaceState.NONE;
-      // TODO: Inform remote party that the video is off. This is similar to b/30256571.
+      call.getVideoTech().setCamera(null);
+      previewSurfaceState = PreviewSurfaceState.NONE;
+      // TODO(wangqi): Inform remote party that the video is off. This is similar to a bug.
     } else if (isCameraRequired) {
       InCallCameraManager cameraManager = InCallPresenter.getInstance().getInCallCameraManager();
-      videoCall.setCamera(cameraManager.getActiveCameraId());
+      call.getVideoTech().setCamera(cameraManager.getActiveCameraId());
       InCallZoomController.getInstance().onCameraEnabled(cameraManager.getActiveCameraId());
-      mPreviewSurfaceState = PreviewSurfaceState.CAMERA_SET;
-      videoCall.requestCameraCapabilities();
+      previewSurfaceState = PreviewSurfaceState.CAMERA_SET;
     } else {
-      mPreviewSurfaceState = PreviewSurfaceState.NONE;
-      videoCall.setCamera(null);
+      previewSurfaceState = PreviewSurfaceState.NONE;
+      call.getVideoTech().setCamera(null);
       InCallZoomController.getInstance().onCameraEnabled(null);
     }
   }
@@ -1177,25 +1268,48 @@ public class VideoCallPresenter
 
     showVideoUi(
         VideoProfile.STATE_AUDIO_ONLY,
-        DialerCall.State.ACTIVE,
+        DialerCallState.ACTIVE,
         SessionModificationState.NO_REQUEST,
         false /* isRemotelyHeld */);
-    enableCamera(mVideoCall, false);
+    enableCamera(primaryCall, false);
     InCallPresenter.getInstance().setFullScreen(false);
+    checkForOrientationAllowedChange(primaryCall);
     InCallPresenter.getInstance().enableScreenTimeout(true);
-    checkForOrientationAllowedChange(mPrimaryCall);
 
-    if (mPrimaryCall != null &&
-        mVideoCall != null &&
-        QtiImsExtUtils.shallTransmitStaticImage(
-            BottomSheetHelper.getInstance().getPhoneId(), mContext) &&
-        isTransmissionEnabled(mPrimaryCall) &&
-        mPrimaryCall.getState() != DialerCall.State.ONHOLD) {
-      LogUtil.v("VideoCallPresenter.exitVideoMode", "setPauseImage(null)");
-      mVideoCall.setPauseImage(null);
+    if (ScreenShareHelper.screenShareRequested()) {
+        clearScreenShareStates();
     }
 
-    mIsVideoMode = false;
+    if (primaryCall != null &&
+        videoCall != null &&
+        QtiImsExtUtils.shallTransmitStaticImage(
+                BottomSheetHelper.getInstance().getPhoneId(), context) &&
+        isTransmissionEnabled(primaryCall) &&
+        primaryCall.getState() != DialerCallState.ONHOLD) {
+      LogUtil.v("VideoCallPresenter.exitVideoMode", "setPauseImage(null)");
+      videoCall.setPauseImage(null);
+    }
+
+    isVideoMode = false;
+  }
+
+  private void clearScreenShareStates() {
+    ScreenShareHelper.onPermissionChanged(null);
+    mScreenShareQuery = NO_PENDING_REQUEST;
+    mImsScreenShareManager = null;
+    if (mVirtualDisplay != null) {
+        mVirtualDisplay.release();
+        mVirtualDisplay = null;
+    }
+    if (mMediaProjection != null) {
+        mMediaProjection.stop();
+        mMediaProjection = null;
+    }
+    if (mQtiImsExtConnector != null) {
+      mQtiImsExtConnector.disconnect();
+      mQtiImsExtConnector = null;
+      mQtiImsExtManager = null;
+    }
   }
 
   /**
@@ -1211,13 +1325,13 @@ public class VideoCallPresenter
       int callState,
       @SessionModificationState int sessionModificationState,
       boolean isRemotelyHeld) {
-    if (mVideoCallScreen == null) {
+    if (videoCallScreen == null) {
       LogUtil.e("VideoCallPresenter.showVideoUi", "videoCallScreen is null returning");
       return;
     }
-    boolean isModifyToVideoRxType = isModifyToVideoRxType(mPrimaryCall);
+    boolean isModifyToVideoRxType = isModifyToVideoRxType(primaryCall);
     boolean showIncomingVideo = showIncomingVideo(videoState, callState);
-    boolean showOutgoingVideo = showOutgoingVideo(mContext, videoState, sessionModificationState,
+    boolean showOutgoingVideo = showOutgoingVideo(context, videoState, sessionModificationState,
         isModifyToVideoRxType);
     LogUtil.i(
         "VideoCallPresenter.showVideoUi",
@@ -1229,14 +1343,14 @@ public class VideoCallPresenter
         shallTransmitStaticImage(),
         isModifyToVideoRxType);
     updateRemoteVideoSurfaceDimensions();
-    mVideoCallScreen.showVideoViews(showOutgoingVideo && !shallTransmitStaticImage() &&
-        !QtiCallUtils.hasVideoCrbtVoLteCall(mContext), showIncomingVideo, isRemotelyHeld);
+    videoCallScreen.showVideoViews(showOutgoingVideo && !shallTransmitStaticImage() &&
+        !QtiCallUtils.hasVideoCrbtVoLteCall(context), showIncomingVideo, isRemotelyHeld);
     if (BottomSheetHelper.getInstance().canDisablePipMode() && mPictureModeHelper != null) {
       mPictureModeHelper.setPreviewVideoLayoutParams();
     }
 
-    updateFullscreenAndGreenScreenMode(callState, sessionModificationState);
     InCallPresenter.getInstance().enableScreenTimeout(VideoProfile.isAudioOnly(videoState));
+    updateFullscreenAndGreenScreenMode(callState, sessionModificationState);
     if (BottomSheetHelper.getInstance().canDisablePipMode() && mPictureModeHelper != null) {
       mPictureModeHelper.maybeHideVideoViews();
     }
@@ -1252,20 +1366,20 @@ public class VideoCallPresenter
   @Override
   public void onUpdatePeerDimensions(DialerCall call, int width, int height) {
     LogUtil.i("VideoCallPresenter.onUpdatePeerDimensions", "width: %d, height: %d", width, height);
-    if (mVideoCallScreen == null) {
+    if (videoCallScreen == null) {
       LogUtil.e("VideoCallPresenter.onUpdatePeerDimensions", "videoCallScreen is null");
       return;
     }
-    if (!call.equals(mPrimaryCall)) {
+    if (!call.equals(primaryCall)) {
       LogUtil.e(
           "VideoCallPresenter.onUpdatePeerDimensions", "current call is not equal to primary");
       return;
     }
 
     // Change size of display surface to match the peer aspect ratio
-    if (width > 0 && height > 0 && mVideoCallScreen != null) {
+    if (width > 0 && height > 0 && videoCallScreen != null) {
       getRemoteVideoSurfaceTexture().setSourceVideoDimensions(new Point(width, height));
-      mVideoCallScreen.onRemoteVideoDimensionsChanged();
+      videoCallScreen.onRemoteVideoDimensionsChanged();
     }
   }
 
@@ -1286,36 +1400,35 @@ public class VideoCallPresenter
         width,
         height,
         call.getVideoCall());
-    if (mVideoCallScreen == null) {
+    if (videoCallScreen == null) {
       LogUtil.e("VideoCallPresenter.onCameraDimensionsChange", "ui is null");
       return;
     }
 
-    if (!call.equals(mPrimaryCall)) {
+    if (!call.equals(primaryCall)) {
       LogUtil.e("VideoCallPresenter.onCameraDimensionsChange", "not the primary call");
       return;
     }
 
-    VideoCall videoCall = call.getVideoCall();
+    VideoCall videocall = call.getVideoCall();
     if (shallTransmitStaticImage()) {
-      setPauseImage(videoCall);
+      setPauseImage(videocall);
     }
 
-    if (mPreviewSurfaceState == PreviewSurfaceState.NONE) {
+    if (previewSurfaceState == PreviewSurfaceState.NONE) {
       LogUtil.w("VideoCallPresenter.onCameraDimensionsChange",
           "capabilities received when camera is OFF.");
       return;
     }
 
-    mPreviewSurfaceState = PreviewSurfaceState.CAPABILITIES_RECEIVED;
-
+    previewSurfaceState = PreviewSurfaceState.CAPABILITIES_RECEIVED;
     changePreviewDimensions(width, height);
 
     // Check if the preview surface is ready yet; if it is, set it on the {@code VideoCall}.
     // If it not yet ready, it will be set when when creation completes.
     Surface surface = getLocalVideoSurfaceTexture().getSavedSurface();
-    if (surface != null && videoCall != null) {
-      mPreviewSurfaceState = PreviewSurfaceState.SURFACE_SET;
+    if (surface != null && videocall != null) {
+      previewSurfaceState = PreviewSurfaceState.SURFACE_SET;
       videoCall.setPreviewSurface(surface);
     }
   }
@@ -1327,7 +1440,7 @@ public class VideoCallPresenter
    * @param height The new height.
    */
   private void changePreviewDimensions(int width, int height) {
-    if (mVideoCallScreen == null) {
+    if (videoCallScreen == null) {
       return;
     }
 
@@ -1337,7 +1450,7 @@ public class VideoCallPresenter
         previewSize.y);
     // Resize the surface used to display the preview video
     getLocalVideoSurfaceTexture().setSurfaceDimensions(previewSize);
-    mVideoCallScreen.onLocalVideoDimensionsChanged();
+    videoCallScreen.onLocalVideoDimensionsChanged();
   }
 
   /**
@@ -1354,11 +1467,11 @@ public class VideoCallPresenter
     LogUtil.i(
         "VideoCallPresenter.onDeviceOrientationChanged",
         "orientation: %d -> %d",
-        mDeviceOrientation,
+        deviceOrientation,
         orientation);
-    mDeviceOrientation = orientation;
+    deviceOrientation = orientation;
 
-    if (mVideoCallScreen == null) {
+    if (videoCallScreen == null) {
       LogUtil.e("VideoCallPresenter.onDeviceOrientationChanged", "videoCallScreen is null");
       return;
     }
@@ -1374,7 +1487,7 @@ public class VideoCallPresenter
         previewDimensions);
     changePreviewDimensions(previewDimensions.x, previewDimensions.y);
 
-    mVideoCallScreen.onLocalVideoOrientationChanged();
+    videoCallScreen.onLocalVideoOrientationChanged();
   }
 
   /**
@@ -1387,7 +1500,7 @@ public class VideoCallPresenter
       return;
     }
 
-    if (!isVideoCall(call) || call.getState() == DialerCall.State.INCOMING) {
+    if (!isVideoCall(call) || call.getState() == DialerCallState.INCOMING) {
       LogUtil.i("VideoCallPresenter.maybeExitFullscreen", "exiting fullscreen");
       InCallPresenter.getInstance().setFullScreen(false);
     }
@@ -1401,76 +1514,72 @@ public class VideoCallPresenter
    * @param call The current call.
    */
   protected void maybeAutoEnterFullscreen(DialerCall call) {
-    if (!mIsAutoFullscreenEnabled) {
+    if (!isAutoFullscreenEnabled) {
       return;
     }
 
     if (call == null
-        || call.getState() != DialerCall.State.ACTIVE
+        || call.getState() != DialerCallState.ACTIVE
         || !isBidirectionalVideoCall(call)
         || InCallPresenter.getInstance().isFullscreen()
-        || (mContext != null && AccessibilityUtil.isTouchExplorationEnabled(mContext))) {
+        || (context != null && AccessibilityUtil.isTouchExplorationEnabled(context))) {
       // Ensure any previously scheduled attempt to enter fullscreen is cancelled.
       cancelAutoFullScreen();
       return;
     }
 
-    if (mAutoFullScreenPending) {
+    if (autoFullScreenPending) {
       LogUtil.v("VideoCallPresenter.maybeAutoEnterFullscreen", "already pending.");
       return;
     }
     LogUtil.v("VideoCallPresenter.maybeAutoEnterFullscreen", "scheduled");
-    mAutoFullScreenPending = true;
-    mHandler.removeCallbacks(mAutoFullscreenRunnable);
-    mHandler.postDelayed(mAutoFullscreenRunnable, mAutoFullscreenTimeoutMillis);
+    autoFullScreenPending = true;
+    handler.removeCallbacks(autoFullscreenRunnable);
+    handler.postDelayed(autoFullscreenRunnable, autoFullscreenTimeoutMillis);
   }
 
   /** Cancels pending auto fullscreen mode. */
   @Override
   public void cancelAutoFullScreen() {
-    if (!mAutoFullScreenPending) {
+    if (!autoFullScreenPending) {
       LogUtil.v("VideoCallPresenter.cancelAutoFullScreen", "none pending.");
       return;
     }
     LogUtil.v("VideoCallPresenter.cancelAutoFullScreen", "cancelling pending");
-    mAutoFullScreenPending = false;
-    mHandler.removeCallbacks(mAutoFullscreenRunnable);
+    autoFullScreenPending = false;
+    handler.removeCallbacks(autoFullscreenRunnable);
   }
 
   @Override
   public boolean shouldShowCameraPermissionToast() {
-    if (mPrimaryCall == null) {
+    if (primaryCall == null) {
       LogUtil.i("VideoCallPresenter.shouldShowCameraPermissionToast", "null call");
       return false;
     }
-    if (mPrimaryCall.didShowCameraPermission()) {
+    if (primaryCall.didShowCameraPermission()) {
       LogUtil.i(
           "VideoCallPresenter.shouldShowCameraPermissionToast", "already shown for this call");
       return false;
     }
-    if (!ConfigProviderBindings.get(mContext)
+    if (!ConfigProviderComponent.get(context)
+        .getConfigProvider()
         .getBoolean("camera_permission_dialog_allowed", true)) {
       LogUtil.i("VideoCallPresenter.shouldShowCameraPermissionToast", "disabled by config");
       return false;
     }
-    return !VideoUtils.hasCameraPermission(mContext)
-        || !PermissionsUtil.hasCameraPrivacyToastShown(mContext);
+    return !VideoUtils.hasCameraPermission(context)
+        || !PermissionsUtil.hasCameraPrivacyToastShown(context);
   }
 
   @Override
   public void onCameraPermissionDialogShown() {
-    if (mPrimaryCall != null) {
-      mPrimaryCall.setDidShowCameraPermission(true);
+    if (primaryCall != null) {
+      primaryCall.setDidShowCameraPermission(true);
     }
   }
 
   private void updateRemoteVideoSurfaceDimensions() {
-    if (mVideoCallScreen == null) {
-      LogUtil.i("VideoCallPresenter.updateRemoteVideoSurfaceDimensions",
-          "mVideoCallScreen is null");
-      return;
-    }
-    Activity activity = mVideoCallScreen.getVideoCallScreenFragment().getActivity();
+    Activity activity = videoCallScreen.getVideoCallScreenFragment().getActivity();
     if (activity != null) {
       Point screenSize = new Point();
       activity.getWindowManager().getDefaultDisplay().getSize(screenSize);
@@ -1488,49 +1597,80 @@ public class VideoCallPresenter
         || VideoUtils.hasReceivedVideoUpgradeRequest(state);
   }
 
+  @Override
+  public void onIncomingCall(DialerCall call) {}
+
+  @Override
+  public void onUpgradeToVideo(DialerCall call) {}
+
+  @Override
+  public void onSessionModificationStateChange(DialerCall call) {}
+
+  @Override
+  public void onCallListChange(CallList callList) {}
+
+  @Override
+  public void onDisconnect(DialerCall call) {}
+
+  @Override
+  public void onWiFiToLteHandover(DialerCall call) {
+    if (call.isVideoCall() || call.hasSentVideoUpgradeRequest()) {
+      videoCallScreen.onHandoverFromWiFiToLte();
+    }
+  }
+
+  @Override
+  public void onHandoverToWifiFailed(DialerCall call) {}
+
+  @Override
+  public void onInternationalCallOnWifi(@NonNull DialerCall call) {}
+
+  @Override
+  public void onSuplServiceMessage(String suplNotificationMessage) {}
+
   private class LocalDelegate implements VideoSurfaceDelegate {
     @Override
     public void onSurfaceCreated(VideoSurfaceTexture videoCallSurface) {
-      if (mVideoCallScreen == null) {
+      if (videoCallScreen == null) {
         LogUtil.e("VideoCallPresenter.LocalDelegate.onSurfaceCreated", "no UI");
         return;
       }
-      if (mVideoCall == null) {
+      if (videoCall == null) {
         LogUtil.e("VideoCallPresenter.LocalDelegate.onSurfaceCreated", "no video call");
         return;
       }
 
       // If the preview surface has just been created and we have already received camera
       // capabilities, but not yet set the surface, we will set the surface now.
-      if (mPreviewSurfaceState == PreviewSurfaceState.CAPABILITIES_RECEIVED) {
-        mPreviewSurfaceState = PreviewSurfaceState.SURFACE_SET;
-        mVideoCall.setPreviewSurface(videoCallSurface.getSavedSurface());
-      } else {
-        maybeEnableCamera();
+      if (previewSurfaceState == PreviewSurfaceState.CAPABILITIES_RECEIVED) {
+        previewSurfaceState = PreviewSurfaceState.SURFACE_SET;
+        videoCall.setPreviewSurface(videoCallSurface.getSavedSurface());
+      } else if (previewSurfaceState == PreviewSurfaceState.NONE && isCameraRequired()) {
+        enableCamera(primaryCall, true);
       }
     }
 
     @Override
     public void onSurfaceReleased(VideoSurfaceTexture videoCallSurface) {
-      if (mVideoCall == null) {
+      if (videoCall == null) {
         LogUtil.e("VideoCallPresenter.LocalDelegate.onSurfaceReleased", "no video call");
         return;
       }
 
-      mVideoCall.setPreviewSurface(null);
-      enableCamera(mVideoCall, false);
+      videoCall.setPreviewSurface(null);
+      enableCamera(primaryCall, false);
     }
 
     @Override
     public void onSurfaceDestroyed(VideoSurfaceTexture videoCallSurface) {
-      if (mVideoCall == null) {
+      if (videoCall == null) {
         LogUtil.e("VideoCallPresenter.LocalDelegate.onSurfaceDestroyed", "no video call");
         return;
       }
 
       boolean isChangingConfigurations = InCallPresenter.getInstance().isChangingConfigurations();
       if (!isChangingConfigurations) {
-        enableCamera(mVideoCall, false);
+        enableCamera(primaryCall, false);
       } else {
         LogUtil.i(
             "VideoCallPresenter.LocalDelegate.onSurfaceDestroyed",
@@ -1545,14 +1685,14 @@ public class VideoCallPresenter
       if (shallTransmitStaticImage()) {
         VideoCallPresenter.this.onSurfaceClick();
       } else if (mPictureModeHelper != null && mPictureModeHelper.canShowPreviewVideoView()
-          && isActiveVideoCall(mPrimaryCall) && isTransmissionEnabled(mPrimaryCall)) {
+          && isActiveVideoCall(primaryCall) && isTransmissionEnabled(primaryCall)) {
         // Set fullscreen to true when showing the zoom controls as the
         // buttons on the left panel conflict with the zoom control bar.
         cancelAutoFullScreen();
         if (!InCallPresenter.getInstance().isFullscreen()) {
           InCallPresenter.getInstance().setFullScreen(true);
         }
-        InCallZoomController.getInstance().onPreviewSurfaceClicked(mVideoCall);
+        InCallZoomController.getInstance().onPreviewSurfaceClicked(videoCall);
       }
     }
   }
@@ -1560,24 +1700,24 @@ public class VideoCallPresenter
   private class RemoteDelegate implements VideoSurfaceDelegate {
     @Override
     public void onSurfaceCreated(VideoSurfaceTexture videoCallSurface) {
-      if (mVideoCallScreen == null) {
+      if (videoCallScreen == null) {
         LogUtil.e("VideoCallPresenter.RemoteDelegate.onSurfaceCreated", "no UI");
         return;
       }
-      if (mVideoCall == null) {
+      if (videoCall == null) {
         LogUtil.e("VideoCallPresenter.RemoteDelegate.onSurfaceCreated", "no video call");
         return;
       }
-      mVideoCall.setDisplaySurface(videoCallSurface.getSavedSurface());
+      videoCall.setDisplaySurface(videoCallSurface.getSavedSurface());
     }
 
     @Override
     public void onSurfaceReleased(VideoSurfaceTexture videoCallSurface) {
-      if (mVideoCall == null) {
+      if (videoCall == null) {
         LogUtil.e("VideoCallPresenter.RemoteDelegate.onSurfaceReleased", "no video call");
         return;
       }
-      mVideoCall.setDisplaySurface(null);
+      videoCall.setDisplaySurface(null);
     }
 
     @Override
@@ -1614,12 +1754,11 @@ public class VideoCallPresenter
   }
 
   private static boolean isBidirectionalVideoCall(DialerCall call) {
-    return CompatUtils.isVideoCompatible() && VideoProfile.isBidirectional(call.getVideoState());
+    return VideoProfile.isBidirectional(call.getVideoState());
   }
 
   public static boolean isTransmissionEnabled(DialerCall call) {
-    return CompatUtils.isVideoCompatible() && call != null &&
-        VideoProfile.isTransmissionEnabled(call.getVideoState());
+    return call != null && VideoProfile.isTransmissionEnabled(call.getVideoState());
   }
 
   private static boolean isIncomingVideoCall(DialerCall call) {
@@ -1627,11 +1766,11 @@ public class VideoCallPresenter
       return false;
     }
     final int state = call.getState();
-    return (state == DialerCall.State.INCOMING) || (state == DialerCall.State.CALL_WAITING);
+    return (state == DialerCallState.INCOMING) || (state == DialerCallState.CALL_WAITING);
   }
 
   private static boolean isActiveVideoCall(DialerCall call) {
-    return isVideoCall(call) && call.getState() == DialerCall.State.ACTIVE;
+    return isVideoCall(call) && call.getState() == DialerCallState.ACTIVE;
   }
 
   private static boolean isOutgoingVideoCall(DialerCall call) {
@@ -1639,16 +1778,12 @@ public class VideoCallPresenter
       return false;
     }
     final int state = call.getState();
-    return DialerCall.State.isDialing(state)
-        || state == DialerCall.State.CONNECTING
-        || state == DialerCall.State.SELECT_PHONE_ACCOUNT;
+    return DialerCallState.isDialing(state)
+        || state == DialerCallState.CONNECTING
+        || state == DialerCallState.SELECT_PHONE_ACCOUNT;
   }
 
   private static boolean isAudioCall(DialerCall call) {
-    if (!CompatUtils.isVideoCompatible()) {
-      return true;
-    }
-
     return call != null && VideoProfile.isAudioOnly(call.getVideoState());
   }
 
@@ -1657,74 +1792,14 @@ public class VideoCallPresenter
   }
 
   private static boolean isVideoCall(int videoState) {
-    return CompatUtils.isVideoCompatible()
-        && (VideoProfile.isTransmissionEnabled(videoState)
-            || VideoProfile.isReceptionEnabled(videoState));
+    return VideoProfile.isTransmissionEnabled(videoState)
+        || VideoProfile.isReceptionEnabled(videoState);
   }
 
   private static boolean isModifyToVideoRxType(DialerCall call) {
-    if (!CompatUtils.isVideoCompatible()) {
-      return false;
-    }
-
     return call != null
         && (call.getVideoTech().getUpgradeToVideoState() == VideoProfile.STATE_RX_ENABLED ||
         call.getVideoTech().getRequestedVideoState() == VideoProfile.STATE_RX_ENABLED);
-  }
-
-  /**
-   * Reads the fixed preview size from global settings and caches it
-   */
-  private void setFixedPreviewSurfaceSize() {
-    if (mPictureModeHelper != null) {
-      mFixedPreviewSurfaceSize = mPictureModeHelper.getPreviewSizeFromSetting(mContext);
-    }
-  }
-
-  /**
-   * Gets called when preview video selection changes
-   * @param boolean previewVideoSelection - New value for preview video selection
-   */
-  @Override
-  public void onPreviewVideoSelectionChanged() {
-    if (mPrimaryCall == null) {
-      return;
-    }
-    setFixedPreviewSurfaceSize();
-    if (mFixedPreviewSurfaceSize != null) {
-      changePreviewDimensions(mFixedPreviewSurfaceSize.x, mFixedPreviewSurfaceSize.y);
-    }
-    showVideoUi(
-        mPrimaryCall.getVideoState(),
-        mPrimaryCall.getState(),
-        mPrimaryCall.getVideoTech().getSessionModificationState(),
-        mPrimaryCall.isRemotelyHeld());
-  }
-
-  /**
-   * Gets called when incoming video selection changes
-   * @param boolean incomingVideoSelection - New value for incoming video selection
-   */
-  @Override
-  public void onIncomingVideoSelectionChanged() {
-    if (mPrimaryCall == null) {
-      return;
-    }
-    showVideoUi(
-        mPrimaryCall.getVideoState(),
-        mPrimaryCall.getState(),
-        mPrimaryCall.getVideoTech().getSessionModificationState(),
-        mPrimaryCall.isRemotelyHeld());
-  }
-
-  public static PictureModeHelper getPictureModeHelper() {
-    return mPictureModeHelper;
-  }
-
-  public static void showPipModeMenu() {
-    if (mPictureModeHelper != null) {
-      mPictureModeHelper.createAndShowDialog();
-    }
   }
 
   /**
@@ -1742,14 +1817,14 @@ public class VideoCallPresenter
       case VideoProvider.SESSION_EVENT_RX_RESUME:
         mIsIncomingVideoAvailable =
             event == VideoProvider.SESSION_EVENT_RX_RESUME;
-        if (mPrimaryCall == null) {
+        if (primaryCall == null) {
           return;
         }
         showVideoUi(
-          mPrimaryCall.getVideoState(),
-          mPrimaryCall.getState(),
-          mPrimaryCall.getVideoTech().getSessionModificationState(),
-          mPrimaryCall.isRemotelyHeld());
+          primaryCall.getVideoState(),
+          primaryCall.getState(),
+          primaryCall.getVideoTech().getSessionModificationState(),
+          primaryCall.isRemotelyHeld());
         sb.append(mIsIncomingVideoAvailable ? "rx_resume" : "rx_pause");
         break;
       case VideoProvider.SESSION_EVENT_CAMERA_FAILURE:
@@ -1764,5 +1839,60 @@ public class VideoCallPresenter
         break;
     }
     LogUtil.i("VideoCallPresenter.onCallSessionEvent", sb.toString());
+  }
+
+  /**
+   * Reads the fixed preview size from global settings and caches it
+   */
+  private void setFixedPreviewSurfaceSize() {
+    if (mPictureModeHelper != null) {
+      mFixedPreviewSurfaceSize = mPictureModeHelper.getPreviewSizeFromSetting(context);
+    }
+  }
+
+  /**
+   * Gets called when preview video selection changes
+   * @param boolean previewVideoSelection - New value for preview video selection
+   */
+  @Override
+  public void onPreviewVideoSelectionChanged() {
+    if (primaryCall == null) {
+      return;
+    }
+    setFixedPreviewSurfaceSize();
+    if (mFixedPreviewSurfaceSize != null) {
+      changePreviewDimensions(mFixedPreviewSurfaceSize.x, mFixedPreviewSurfaceSize.y);
+    }
+    showVideoUi(
+        primaryCall.getVideoState(),
+        primaryCall.getState(),
+        primaryCall.getVideoTech().getSessionModificationState(),
+        primaryCall.isRemotelyHeld());
+  }
+
+  /**
+   * Gets called when incoming video selection changes
+   * @param boolean incomingVideoSelection - New value for incoming video selection
+   */
+  @Override
+  public void onIncomingVideoSelectionChanged() {
+    if (primaryCall == null) {
+      return;
+    }
+    showVideoUi(
+        primaryCall.getVideoState(),
+        primaryCall.getState(),
+        primaryCall.getVideoTech().getSessionModificationState(),
+        primaryCall.isRemotelyHeld());
+  }
+
+  public static PictureModeHelper getPictureModeHelper() {
+    return mPictureModeHelper;
+  }
+
+  public static void showPipModeMenu() {
+    if (mPictureModeHelper != null) {
+      mPictureModeHelper.createAndShowDialog();
+    }
   }
 }

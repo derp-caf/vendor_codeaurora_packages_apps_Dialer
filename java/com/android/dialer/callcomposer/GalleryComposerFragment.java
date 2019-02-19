@@ -28,9 +28,7 @@ import android.os.Parcelable;
 import android.provider.Settings;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
-import android.support.annotation.VisibleForTesting;
 import android.support.v4.app.LoaderManager.LoaderCallbacks;
-import android.support.v4.content.ContextCompat;
 import android.support.v4.content.CursorLoader;
 import android.support.v4.content.Loader;
 import android.view.LayoutInflater;
@@ -40,13 +38,12 @@ import android.view.ViewGroup;
 import android.widget.GridView;
 import android.widget.ImageView;
 import android.widget.TextView;
-import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
-import com.android.dialer.common.concurrent.DefaultDialerExecutorFactory;
 import com.android.dialer.common.concurrent.DialerExecutor;
-import com.android.dialer.common.concurrent.DialerExecutorFactory;
+import com.android.dialer.common.concurrent.DialerExecutorComponent;
 import com.android.dialer.logging.DialerImpression;
 import com.android.dialer.logging.Logger;
+import com.android.dialer.theme.base.ThemeComponent;
 import com.android.dialer.util.PermissionsUtil;
 import java.util.ArrayList;
 import java.util.List;
@@ -61,8 +58,6 @@ public class GalleryComposerFragment extends CallComposerFragment
 
   private static final int RESULT_LOAD_IMAGE = 1;
   private static final int RESULT_OPEN_SETTINGS = 2;
-
-  private DialerExecutorFactory executorFactory = new DefaultDialerExecutorFactory();
 
   private GalleryGridAdapter adapter;
   private GridView galleryGridView;
@@ -79,11 +74,6 @@ public class GalleryComposerFragment extends CallComposerFragment
 
   public static GalleryComposerFragment newInstance() {
     return new GalleryComposerFragment();
-  }
-
-  @VisibleForTesting
-  void setExecutorFactory(@NonNull DialerExecutorFactory executorFactory) {
-    this.executorFactory = Assert.isNotNull(executorFactory);
   }
 
   @Nullable
@@ -104,8 +94,7 @@ public class GalleryComposerFragment extends CallComposerFragment
       allowPermission.setOnClickListener(this);
       permissionText.setText(R.string.gallery_permission_text);
       permissionImage.setImageResource(R.drawable.quantum_ic_photo_white_48);
-      permissionImage.setColorFilter(
-          ContextCompat.getColor(getContext(), R.color.dialer_theme_color));
+      permissionImage.setColorFilter(ThemeComponent.get(getContext()).theme().getColorPrimary());
       permissionView.setVisibility(View.VISIBLE);
     } else {
       if (bundle != null) {
@@ -123,7 +112,8 @@ public class GalleryComposerFragment extends CallComposerFragment
     super.onActivityCreated(bundle);
 
     copyAndResizeImage =
-        executorFactory
+        DialerExecutorComponent.get(getContext())
+            .dialerExecutorFactory()
             .createUiTaskBuilder(
                 getActivity().getFragmentManager(),
                 "copyAndResizeImage",
@@ -137,7 +127,7 @@ public class GalleryComposerFragment extends CallComposerFragment
                 })
             .onFailure(
                 throwable -> {
-                  // TODO(b/34279096) - gracefully handle message failure
+                  // TODO(a bug) - gracefully handle message failure
                   LogUtil.e(
                       "GalleryComposerFragment.onFailure", "data preparation failed", throwable);
                 })
@@ -303,7 +293,7 @@ public class GalleryComposerFragment extends CallComposerFragment
     if (url != null) {
       copyAndResizeImage.executeParallel(Uri.parse(url));
     } else {
-      // TODO(b/34279096) - gracefully handle message failure
+      // TODO(a bug) - gracefully handle message failure
     }
   }
 }

@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -36,11 +36,13 @@ import android.content.DialogInterface.OnClickListener;
 import android.content.DialogInterface.OnDismissListener;
 import android.content.Intent;
 import android.net.Uri;
+import android.support.annotation.NonNull;
 import android.view.WindowManager;
 import android.os.Bundle;
 
 import com.android.incallui.call.CallList;
 import com.android.incallui.call.DialerCall;
+import com.android.incallui.incalluilock.InCallUiLock;
 
 import org.codeaurora.ims.utils.QtiCallUtils;
 import org.codeaurora.ims.QtiCallConstants;
@@ -139,9 +141,13 @@ public class InCallCsRedialHandler implements CallList.Listener {
         // no-op
     }
 
+   /**
+     * This method overrides onInternationalCallOnWifi method of {@interface CallList.Listener}
+     * Added for completeness. No implementation yet.
+     */
     @Override
-    public void onInternationalCallOnWifi(DialerCall call) {
-        //NO-OP
+    public void onInternationalCallOnWifi(@NonNull DialerCall call) {
+        // no-op
     }
 
     @Override
@@ -185,6 +191,7 @@ public class InCallCsRedialHandler implements CallList.Listener {
      */
     private void checkForCsRetry(final DialerCall call) {
         final int failCause = getFailCauseFromExtras(call.getExtras());
+
         Log.i(this, "checkForCsRetry failCause: " + failCause);
         if (failCause != QtiCallConstants.CALL_FAIL_EXTRA_CODE_CALL_CS_RETRY_REQUIRED) {
             return;
@@ -228,6 +235,7 @@ public class InCallCsRedialHandler implements CallList.Listener {
         }
         inCallActivity.dismissPendingDialogs();
 
+        InCallUiLock lock = InCallPresenter.getInstance().acquireInCallUiLock("showErrorDialog");
         mAlert = new AlertDialog.Builder(inCallActivity).setTitle(R.string.cs_redial_option)
                 .setMessage(R.string.cs_redial_msg)
                 .setPositiveButton(R.string.cs_redial_yes, new OnClickListener() {
@@ -246,7 +254,8 @@ public class InCallCsRedialHandler implements CallList.Listener {
                     @Override
                     public void onDismiss(final DialogInterface dialog) {
                         Log.d(this, "showCsRedialDialogOnDisconnect calling onDialogDismissed");
-                        onDialogDismissed();
+                        lock.release();
+                        mAlert = null;
                     }
                 })
                 .create();
@@ -263,16 +272,6 @@ public class InCallCsRedialHandler implements CallList.Listener {
         return mAlert != null && mAlert.isShowing();
     }
 
-    /**
-     * A dialog could have prevented in-call screen from being previously finished.
-     * This function checks to see if there should be any UI left and if not attempts
-     * to tear down the UI.
-     */
-    private void onDialogDismissed() {
-        mAlert = null;
-        InCallPresenter.getInstance().onDismissDialog();
-    }
-
     /*
      * This method dismisses the CS retry dialog
      */
@@ -281,13 +280,5 @@ public class InCallCsRedialHandler implements CallList.Listener {
             mAlert.dismiss();
             mAlert = null;
         }
-    }
-
-    /*
-     * This method returns true if the dialog is still visible and waiting for user confirmation
-     * else false
-     */
-    public boolean hasPendingDialogs() {
-        return mAlert != null;
     }
 }

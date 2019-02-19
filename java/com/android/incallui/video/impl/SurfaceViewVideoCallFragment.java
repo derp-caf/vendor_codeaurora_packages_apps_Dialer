@@ -22,6 +22,7 @@ import android.content.pm.PackageManager;
 import android.graphics.Point;
 import android.graphics.drawable.Animatable;
 import android.os.Bundle;
+import android.support.annotation.ColorInt;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.annotation.VisibleForTesting;
@@ -49,7 +50,6 @@ import android.widget.TextView;
 import com.android.dialer.common.Assert;
 import com.android.dialer.common.FragmentUtils;
 import com.android.dialer.common.LogUtil;
-import com.android.dialer.compat.ActivityCompat;
 import com.android.dialer.util.PermissionsUtil;
 import com.android.incallui.audioroute.AudioRouteSelectorDialogFragment;
 import com.android.incallui.audioroute.AudioRouteSelectorDialogFragment.AudioRouteSelectorPresenter;
@@ -186,8 +186,7 @@ public class SurfaceViewVideoCallFragment extends Fragment
         new ContactGridManager(view, null /* no avatar */, 0, false /* showAnonymousAvatar */);
 
     controls = view.findViewById(R.id.videocall_video_controls);
-    controls.setVisibility(
-        ActivityCompat.isInMultiWindowMode(getActivity()) ? View.GONE : View.VISIBLE);
+    controls.setVisibility(getActivity().isInMultiWindowMode() ? View.GONE : View.VISIBLE);
     controlsContainer = view.findViewById(R.id.videocall_video_controls_container);
     speakerButton = (CheckableImageButton) view.findViewById(R.id.videocall_speaker_button);
     muteButton = (CheckableImageButton) view.findViewById(R.id.videocall_mute_button);
@@ -199,8 +198,7 @@ public class SurfaceViewVideoCallFragment extends Fragment
     swapCameraButton = (ImageButton) view.findViewById(R.id.videocall_switch_video);
     swapCameraButton.setOnClickListener(this);
     view.findViewById(R.id.videocall_switch_controls)
-        .setVisibility(
-            ActivityCompat.isInMultiWindowMode(getActivity()) ? View.GONE : View.VISIBLE);
+        .setVisibility(getActivity().isInMultiWindowMode() ? View.GONE : View.VISIBLE);
     switchOnHoldButton = view.findViewById(R.id.videocall_switch_on_hold);
     onHoldContainer = view.findViewById(R.id.videocall_on_hold_banner);
     remoteVideoOff = (TextView) view.findViewById(R.id.videocall_remote_video_off);
@@ -311,7 +309,7 @@ public class SurfaceViewVideoCallFragment extends Fragment
   @Override
   public void onVideoScreenStart() {
     inCallButtonUiDelegate.refreshMuteState();
-    videoCallScreenDelegate.onVideoCallScreenUiReady(this);
+    videoCallScreenDelegate.onVideoCallScreenUiReady();
     getView().postDelayed(cameraPermissionDialogRunnable, CAMERA_PERMISSION_DIALOG_DELAY_IN_MILLIS);
   }
 
@@ -477,7 +475,7 @@ public class SurfaceViewVideoCallFragment extends Fragment
 
   private Point getPreviewOffsetStartShown() {
     // No insets in multiwindow mode, and rootWindowInsets will get the display's insets.
-    if (ActivityCompat.isInMultiWindowMode(getActivity())) {
+    if (getActivity().isInMultiWindowMode()) {
       return new Point();
     }
     if (isLandscape()) {
@@ -689,7 +687,7 @@ public class SurfaceViewVideoCallFragment extends Fragment
     isInGreenScreenMode = shouldShowGreenScreen;
     isInFullscreenMode = shouldShowFullscreen;
 
-    if (getView().isAttachedToWindow() && !ActivityCompat.isInMultiWindowMode(getActivity())) {
+    if (getView().isAttachedToWindow() && !getActivity().isInMultiWindowMode()) {
       controlsContainer.onApplyWindowInsets(getView().getRootWindowInsets());
     }
     if (shouldShowGreenScreen) {
@@ -726,6 +724,9 @@ public class SurfaceViewVideoCallFragment extends Fragment
   public String getCallId() {
     return Assert.isNotNull(getArguments().getString(ARG_CALL_ID));
   }
+
+  @Override
+  public void onHandoverFromWiFiToLte() {}
 
   @Override
   public void showButton(@InCallButtonIds int buttonId, boolean show) {
@@ -808,7 +809,7 @@ public class SurfaceViewVideoCallFragment extends Fragment
   }
 
   @Override
-  public void updateInCallButtonUiColors() {}
+  public void updateInCallButtonUiColors(@ColorInt int color) {}
 
   @Override
   public Fragment getInCallButtonUiFragment() {
@@ -849,7 +850,7 @@ public class SurfaceViewVideoCallFragment extends Fragment
     updateButtonStates();
     FragmentTransaction transaction = getChildFragmentManager().beginTransaction();
     Fragment oldBanner = getChildFragmentManager().findFragmentById(R.id.videocall_on_hold_banner);
-    if (secondaryInfo.shouldShow) {
+    if (secondaryInfo.shouldShow()) {
       OnHoldFragment onHoldFragment = OnHoldFragment.newInstance(secondaryInfo);
       onHoldFragment.setPadTopInset(!isInFullscreenMode);
       transaction.replace(R.id.videocall_on_hold_banner, onHoldFragment);
@@ -892,16 +893,6 @@ public class SurfaceViewVideoCallFragment extends Fragment
   @Override
   public void showNoteSentToast() {
     LogUtil.i("SurfaceViewVideoCallFragment.showNoteSentToast", null);
-  }
-
-  @Override
-  public void showVbButton(boolean show) {
-    LogUtil.i("VideoCallFragment.showNVbButton", null);
-  }
-
-  @Override
-  public void updateVbByAudioMode(CallAudioState audioState) {
-    LogUtil.i("VideoCallFragment.updateVbByAudioMode", null);
   }
 
   @Override

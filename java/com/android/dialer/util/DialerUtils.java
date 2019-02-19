@@ -15,20 +15,15 @@
  */
 package com.android.dialer.util;
 
+import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.DialogInterface.OnClickListener;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.graphics.Point;
-import android.os.Build.VERSION;
-import android.os.Build.VERSION_CODES;
 import android.os.Bundle;
-import android.preference.PreferenceManager;
-import android.support.annotation.NonNull;
-import android.support.v4.content.ContextCompat;
 import android.telecom.TelecomManager;
 import android.telephony.TelephonyManager;
 import android.text.BidiFormatter;
@@ -37,7 +32,6 @@ import android.text.TextUtils;
 import android.view.View;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Toast;
-import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
 import com.android.dialer.telecom.TelecomUtil;
 import java.io.File;
@@ -145,12 +139,12 @@ public class DialerUtils {
    * currently active call over LTE. Regardless of the country or carrier, the radio will drop an
    * active LTE call if a WPS number is dialed, so this warning is necessary.
    */
+  @SuppressLint("MissingPermission")
   private static boolean shouldWarnForOutgoingWps(Context context, String number) {
     if (number != null && number.startsWith(WPS_PREFIX)) {
       TelephonyManager telephonyManager = context.getSystemService(TelephonyManager.class);
       boolean isOnVolte =
-          VERSION.SDK_INT >= VERSION_CODES.N
-              && telephonyManager.getVoiceNetworkType() == TelephonyManager.NETWORK_TYPE_LTE;
+          telephonyManager.getVoiceNetworkType() == TelephonyManager.NETWORK_TYPE_LTE;
       boolean hasCurrentActiveCall =
           telephonyManager.getCallState() == TelephonyManager.CALL_STATE_OFFHOOK;
       return isOnVolte && hasCurrentActiveCall;
@@ -230,26 +224,5 @@ public class DialerUtils {
       parentDir.mkdirs();
     }
     return new File(parentDir, String.valueOf(fileId));
-  }
-
-  /**
-   * Returns default preference for context accessing device protected storage. This is used when
-   * directBoot is enabled (before device unlocked after boot) since the default shared preference
-   * used normally is not available at this moment for N devices. Returns regular default shared
-   * preference for pre-N devices.
-   */
-  @NonNull
-  public static SharedPreferences getDefaultSharedPreferenceForDeviceProtectedStorageContext(
-      @NonNull Context context) {
-    Assert.isNotNull(context);
-    Context deviceProtectedContext =
-        ContextCompat.isDeviceProtectedStorage(context)
-            ? context
-            : ContextCompat.createDeviceProtectedStorageContext(context);
-    // ContextCompat.createDeviceProtectedStorageContext(context) returns null on pre-N, thus fall
-    // back to regular default shared preference for pre-N devices since devices protected context
-    // is not available.
-    return PreferenceManager.getDefaultSharedPreferences(
-        deviceProtectedContext != null ? deviceProtectedContext : context);
   }
 }

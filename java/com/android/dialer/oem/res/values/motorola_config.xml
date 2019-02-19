@@ -20,7 +20,9 @@
   <bool name="motorola_sprint_hd_codec">false</bool>
 
   <!-- Hidden menu configuration for Motorola. -->
-  <!-- This defines the specific key seuquence that will be catched in the SpecialCharSequenceMgr
+  <!-- Hidden menu is only enabled for sprint-->
+  <bool name="motorola_hidden_menu_enabled">false</bool>
+  <!-- This defines the specific key sequence that will be caught in the SpecialCharSequenceMgr
        such as, ##OMADM# -->
   <string-array name="motorola_hidden_menu_key_sequence">
     <item>##66236#</item>   <!--##OMADM#-->
@@ -42,7 +44,7 @@
 
   <string name="motorola_hidden_menu_intent">com.motorola.intent.action.LAUNCH_HIDDEN_MENU</string>
 
-  <!-- This defines the intents that will be send out when the key quence is matched, this must be
+  <!-- This defines the intents that will be send out when the key sequence is matched, this must be
        in the same order with he KeySequence array. -->
   <string-array name="motorola_hidden_menu_key_sequence_intents">
     <item>@string/motorola_hidden_menu_intent</item>
@@ -62,16 +64,26 @@
     <item>@string/motorola_hidden_menu_intent</item>
   </string-array>
 
-  <!-- This defines the specific key patterns that will be catched in the SpecialCharSequenceMgr
+  <!-- This defines the specific key patterns that will be caught in the SpecialCharSequenceMgr
        such as, ##[0-9]{3,7}# -->
   <string-array name="motorola_hidden_menu_key_pattern">
     <!--##MSL#, here MSL is 6 digits SPC code, ##OTKSL#, OTKSL is also digits code -->
     <item>##[0-9]{6}#</item>
   </string-array>
 
-  <!-- This defines the intents that will be send out when the key quence is matched, this must be
-       in the same order with he KeyPattern array. -->
+  <!-- This defines the intents that will be send out when the key sequence is matched, this must be
+     in the same order with he KeyPattern array. -->
   <string-array name="motorola_hidden_menu_key_pattern_intents">
     <item>@string/motorola_hidden_menu_intent</item>
   </string-array>
+
+  <!-- This defines the provider names for cequint callerid applications
+       used for different carriers-->
+  <string-array name="cequint_providers">
+    <item>com.cequint.ecid</item>
+    <item>com.vzw.ecid</item>
+  </string-array>
+
+  <!-- Flag to control whether to disable phone number formatting -->
+  <bool name="motorola_disable_phone_number_formatting">false</bool>
 </resources>

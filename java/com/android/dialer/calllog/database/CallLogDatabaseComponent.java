@@ -25,7 +25,7 @@ public abstract class CallLogDatabaseComponent {
 
   public abstract Coalescer coalescer();
 
-  public abstract MutationApplier mutationApplier();
+  public abstract AnnotatedCallLogDatabaseHelper annotatedCallLogDatabaseHelper();
 
   public static CallLogDatabaseComponent get(Context context) {
     return ((CallLogDatabaseComponent.HasComponent)

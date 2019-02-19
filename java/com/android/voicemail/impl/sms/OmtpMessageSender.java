@@ -15,13 +15,16 @@
  */
 package com.android.voicemail.impl.sms;
 
+import android.annotation.TargetApi;
 import android.app.PendingIntent;
 import android.content.Context;
+import android.os.Build.VERSION_CODES;
 import android.support.annotation.Nullable;
 import android.telecom.PhoneAccountHandle;
 import android.telephony.SmsManager;
+import android.telephony.TelephonyManager;
 import com.android.voicemail.impl.OmtpConstants;
-import com.android.voicemail.impl.TelephonyMangerCompat;
+import com.android.voicemail.impl.VvmLog;
 
 /**
  * Send client originated OMTP messages to the OMTP server.
@@ -32,22 +35,23 @@ import com.android.voicemail.impl.TelephonyMangerCompat;
  *
  * <p>Provides simple APIs to send different types of mobile originated OMTP SMS to the VVM server.
  */
+@TargetApi(VERSION_CODES.O)
 public abstract class OmtpMessageSender {
   protected static final String TAG = "OmtpMessageSender";
-  protected final Context mContext;
-  protected final PhoneAccountHandle mPhoneAccountHandle;
-  protected final short mApplicationPort;
-  protected final String mDestinationNumber;
+  protected final Context context;
+  protected final PhoneAccountHandle phoneAccountHandle;
+  protected final short applicationPort;
+  protected final String destinationNumber;
 
   public OmtpMessageSender(
       Context context,
       PhoneAccountHandle phoneAccountHandle,
       short applicationPort,
       String destinationNumber) {
-    mContext = context;
-    mPhoneAccountHandle = phoneAccountHandle;
-    mApplicationPort = applicationPort;
-    mDestinationNumber = destinationNumber;
+    this.context = context;
+    this.phoneAccountHandle = phoneAccountHandle;
+    this.applicationPort = applicationPort;
+    this.destinationNumber = destinationNumber;
   }
 
   /**
@@ -75,8 +79,14 @@ public abstract class OmtpMessageSender {
   public void requestVvmStatus(@Nullable PendingIntent sentIntent) {}
 
   protected void sendSms(String text, PendingIntent sentIntent) {
-    TelephonyMangerCompat.sendVisualVoicemailSms(
-        mContext, mPhoneAccountHandle, mDestinationNumber, mApplicationPort, text, sentIntent);
+
+    VvmLog.v(
+        TAG, String.format("Sending sms '%s' to %s:%d", text, destinationNumber, applicationPort));
+
+    context
+        .getSystemService(TelephonyManager.class)
+        .createForPhoneAccountHandle(phoneAccountHandle)
+        .sendVisualVoicemailSms(destinationNumber, applicationPort, text, sentIntent);
   }
 
   protected void appendField(StringBuilder sb, String field, Object value) {

@@ -45,9 +45,7 @@ class ButtonChooserFactory {
       return newCdmaButtonChooser();
     }
 
-    // Button layout for SIP call is similar to GSM
-    if (phoneType == TelephonyManager.PHONE_TYPE_GSM
-        || phoneType == TelephonyManager.PHONE_TYPE_SIP) {
+    if (phoneType == TelephonyManager.PHONE_TYPE_GSM) {
       return newGsmButtonChooser();
     }
 
@@ -59,6 +57,9 @@ class ButtonChooserFactory {
     mapping.put(
         InCallButtonIds.BUTTON_MANAGE_VOICE_CONFERENCE,
         MappingInfo.builder(4).setSlotOrder(0).build());
+    // RTT call is only supported on IMS and WiFi.
+    mapping.put(
+        InCallButtonIds.BUTTON_UPGRADE_TO_RTT, MappingInfo.builder(3).setSlotOrder(0).build());
     mapping.put(
         InCallButtonIds.BUTTON_UPGRADE_TO_VIDEO, MappingInfo.builder(4).setSlotOrder(10).build());
     mapping.put(
@@ -76,6 +77,10 @@ class ButtonChooserFactory {
     mapping.put(
         InCallButtonIds.BUTTON_UPGRADE_TO_VIDEO, MappingInfo.builder(4).setSlotOrder(10).build());
     mapping.put(InCallButtonIds.BUTTON_SWAP, MappingInfo.builder(5).setSlotOrder(0).build());
+    // For multi-sim devices, the first sim's phoneType is used so hold button might be not
+    // available for CDMA + GSM devices calling with GSM sim. Adding hold button as low priority
+    // here to let telecom control whether it should be shown.
+    mapping.put(InCallButtonIds.BUTTON_HOLD, MappingInfo.builder(5).setSlotOrder(5).build());
     mapping.put(
         InCallButtonIds.BUTTON_SWITCH_TO_SECONDARY,
         MappingInfo.builder(5)
@@ -112,8 +117,9 @@ class ButtonChooserFactory {
     mapping.put(InCallButtonIds.BUTTON_MUTE, MappingInfo.builder(0).build());
     mapping.put(InCallButtonIds.BUTTON_DIALPAD, MappingInfo.builder(1).build());
     mapping.put(InCallButtonIds.BUTTON_AUDIO, MappingInfo.builder(2).build());
-    mapping.put(InCallButtonIds.BUTTON_MERGE, MappingInfo.builder(3).setSlotOrder(0).build());
+    mapping.put(InCallButtonIds.BUTTON_MERGE, MappingInfo.builder(3).setSlotOrder(5).build());
     mapping.put(InCallButtonIds.BUTTON_ADD_CALL, MappingInfo.builder(3).build());
+    mapping.put(InCallButtonIds.BUTTON_SWAP_SIM, MappingInfo.builder(4).build());
     return mapping;
   }
 }

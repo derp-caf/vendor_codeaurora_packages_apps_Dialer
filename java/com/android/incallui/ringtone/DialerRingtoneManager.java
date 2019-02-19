@@ -18,13 +18,11 @@ package com.android.incallui.ringtone;
 
 import android.content.ContentResolver;
 import android.net.Uri;
-import android.os.Build.VERSION;
-import android.os.Build.VERSION_CODES;
 import android.provider.Settings;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import com.android.incallui.call.CallList;
-import com.android.incallui.call.DialerCall.State;
+import com.android.incallui.call.state.DialerCallState;
 import java.util.Objects;
 
 /**
@@ -38,26 +36,26 @@ public class DialerRingtoneManager {
    * Once we're ready to enable Dialer Ringing, these flags should be removed.
    */
   private static final boolean IS_DIALER_RINGING_ENABLED = false;
-  private final InCallTonePlayer mInCallTonePlayer;
-  private final CallList mCallList;
-  private Boolean mIsDialerRingingEnabledForTesting;
+  private final InCallTonePlayer inCallTonePlayer;
+  private final CallList callList;
+  private Boolean isDialerRingingEnabledForTesting;
 
   /**
    * Creates the DialerRingtoneManager with the given {@link InCallTonePlayer}.
    *
    * @param inCallTonePlayer the tone player used to play in-call tones.
-   * @param callList the CallList used to check for {@link State#CALL_WAITING}
+   * @param callList the CallList used to check for {@link DialerCallState#CALL_WAITING}
    * @throws NullPointerException if inCallTonePlayer or callList are null
    */
   public DialerRingtoneManager(
       @NonNull InCallTonePlayer inCallTonePlayer, @NonNull CallList callList) {
-    mInCallTonePlayer = Objects.requireNonNull(inCallTonePlayer);
-    mCallList = Objects.requireNonNull(callList);
+    this.inCallTonePlayer = Objects.requireNonNull(inCallTonePlayer);
+    this.callList = Objects.requireNonNull(callList);
   }
 
   /**
-   * Determines if a ringtone should be played for the given call state (see {@link State}) and
-   * {@link Uri}.
+   * Determines if a ringtone should be played for the given call state (see {@link
+   * DialerCallState}) and {@link Uri}.
    *
    * @param callState the call state for the call being checked.
    * @param ringtoneUri the ringtone to potentially play.
@@ -65,7 +63,7 @@ public class DialerRingtoneManager {
    */
   public boolean shouldPlayRingtone(int callState, @Nullable Uri ringtoneUri) {
     return isDialerRingingEnabled()
-        && translateCallStateForCallWaiting(callState) == State.INCOMING
+        && translateCallStateForCallWaiting(callState) == DialerCallState.INCOMING
         && ringtoneUri != null;
   }
 
@@ -81,35 +79,35 @@ public class DialerRingtoneManager {
   }
 
   /**
-   * The incoming callState is never set as {@link State#CALL_WAITING} because {@link
+   * The incoming callState is never set as {@link DialerCallState#CALL_WAITING} because {@link
    * DialerCall#translateState(int)} doesn't account for that case, check for it here
    */
   private int translateCallStateForCallWaiting(int callState) {
-    if (callState != State.INCOMING) {
+    if (callState != DialerCallState.INCOMING) {
       return callState;
     }
-    return mCallList.getActiveCall() == null ? State.INCOMING : State.CALL_WAITING;
+    return callList.getActiveCall() == null
+        ? DialerCallState.INCOMING
+        : DialerCallState.CALL_WAITING;
   }
 
   private boolean isDialerRingingEnabled() {
-    boolean enabledFlag =
-        mIsDialerRingingEnabledForTesting != null
-            ? mIsDialerRingingEnabledForTesting
-            : IS_DIALER_RINGING_ENABLED;
-    return VERSION.SDK_INT >= VERSION_CODES.N && enabledFlag;
+    return isDialerRingingEnabledForTesting != null
+        ? isDialerRingingEnabledForTesting
+        : IS_DIALER_RINGING_ENABLED;
   }
 
   /**
    * Determines if a call waiting tone should be played for the the given call state (see {@link
-   * State}).
+   * DialerCallState}).
    *
    * @param callState the call state for the call being checked.
    * @return {@code true} if the call waiting tone should be played, {@code false} otherwise.
    */
   public boolean shouldPlayCallWaitingTone(int callState) {
     return isDialerRingingEnabled()
-        && translateCallStateForCallWaiting(callState) == State.CALL_WAITING
-        && !mInCallTonePlayer.isPlayingTone();
+        && translateCallStateForCallWaiting(callState) == DialerCallState.CALL_WAITING
+        && !inCallTonePlayer.isPlayingTone();
   }
 
   /** Plays the call waiting tone. */
@@ -117,7 +115,7 @@ public class DialerRingtoneManager {
     if (!isDialerRingingEnabled()) {
       return;
     }
-    mInCallTonePlayer.play(InCallTonePlayer.TONE_CALL_WAITING);
+    inCallTonePlayer.play(InCallTonePlayer.TONE_CALL_WAITING);
   }
 
   /** Stops playing the call waiting tone. */
@@ -125,10 +123,10 @@ public class DialerRingtoneManager {
     if (!isDialerRingingEnabled()) {
       return;
     }
-    mInCallTonePlayer.stop();
+    inCallTonePlayer.stop();
   }
 
   void setDialerRingingEnabledForTesting(boolean status) {
-    mIsDialerRingingEnabledForTesting = status;
+    isDialerRingingEnabledForTesting = status;
   }
 }

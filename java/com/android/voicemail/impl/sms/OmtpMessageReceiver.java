@@ -35,10 +35,10 @@ import com.android.voicemail.impl.Voicemail.Builder;
 import com.android.voicemail.impl.VvmLog;
 import com.android.voicemail.impl.protocol.VisualVoicemailProtocol;
 import com.android.voicemail.impl.settings.VisualVoicemailSettingsUtil;
-import com.android.voicemail.impl.sync.OmtpVvmSyncService;
 import com.android.voicemail.impl.sync.SyncOneTask;
 import com.android.voicemail.impl.sync.SyncTask;
 import com.android.voicemail.impl.sync.VoicemailsQueryHelper;
+import com.android.voicemail.impl.sync.VvmAccountManager;
 import com.android.voicemail.impl.utils.VoicemailDatabaseUtil;
 
 /** Receive SMS messages and send for processing by the OMTP visual voicemail source. */
@@ -47,11 +47,11 @@ public class OmtpMessageReceiver extends BroadcastReceiver {
 
   private static final String TAG = "OmtpMessageReceiver";
 
-  private Context mContext;
+  private Context context;
 
   @Override
   public void onReceive(Context context, Intent intent) {
-    mContext = context;
+    this.context = context;
     VisualVoicemailSms sms = intent.getExtras().getParcelable(OmtpService.EXTRA_VOICEMAIL_SMS);
     PhoneAccountHandle phone = sms.getPhoneAccountHandle();
 
@@ -70,12 +70,18 @@ public class OmtpMessageReceiver extends BroadcastReceiver {
       return;
     }
 
-    OmtpVvmCarrierConfigHelper helper = new OmtpVvmCarrierConfigHelper(mContext, phone);
+    if (!VvmAccountManager.isAccountActivated(context, phone)) {
+      VvmLog.i(TAG, "Received message on non-activated account");
+      LegacyModeSmsHandler.handle(context, sms);
+      return;
+    }
+
+    OmtpVvmCarrierConfigHelper helper = new OmtpVvmCarrierConfigHelper(this.context, phone);
     if (!helper.isValid()) {
       VvmLog.e(TAG, "vvm config no longer valid");
       return;
     }
-    if (!VisualVoicemailSettingsUtil.isEnabled(mContext, phone)) {
+    if (!VisualVoicemailSettingsUtil.isEnabled(this.context, phone)) {
       if (helper.isLegacyModeEnabled()) {
         LegacyModeSmsHandler.handle(context, sms);
       } else {
@@ -141,18 +147,18 @@ public class OmtpMessageReceiver extends BroadcastReceiver {
                 .setPhoneAccount(phone)
                 .setSourceData(message.getId())
                 .setDuration(message.getLength())
-                .setSourcePackage(mContext.getPackageName());
+                .setSourcePackage(context.getPackageName());
         Voicemail voicemail = builder.build();
 
-        VoicemailsQueryHelper queryHelper = new VoicemailsQueryHelper(mContext);
+        VoicemailsQueryHelper queryHelper = new VoicemailsQueryHelper(context);
         if (queryHelper.isVoicemailUnique(voicemail)) {
-          Uri uri = VoicemailDatabaseUtil.insert(mContext, voicemail);
+          Uri uri = VoicemailDatabaseUtil.insert(context, voicemail);
           voicemail = builder.setId(ContentUris.parseId(uri)).setUri(uri).build();
-          SyncOneTask.start(mContext, phone, voicemail);
+          SyncOneTask.start(context, phone, voicemail);
         }
         break;
       case OmtpConstants.MAILBOX_UPDATE:
-        SyncTask.start(mContext, phone, OmtpVvmSyncService.SYNC_DOWNLOAD_ONLY);
+        SyncTask.start(context, phone);
         break;
       case OmtpConstants.GREETINGS_UPDATE:
         // Not implemented in V1

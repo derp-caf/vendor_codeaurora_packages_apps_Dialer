@@ -22,28 +22,39 @@ import android.provider.CallLog.Calls;
 import android.support.annotation.ColorInt;
 import android.support.annotation.NonNull;
 import android.support.v4.content.ContextCompat;
+import android.support.v4.os.BuildCompat;
 import android.support.v7.widget.RecyclerView.ViewHolder;
 import android.text.TextUtils;
 import android.view.View;
 import android.widget.ImageView;
 import android.widget.TextView;
 import com.android.dialer.calldetails.CallDetailsEntries.CallDetailsEntry;
-import com.android.dialer.calllogutils.CallEntryFormatter;
+import com.android.dialer.calllogutils.CallLogDates;
+import com.android.dialer.calllogutils.CallLogDurations;
 import com.android.dialer.calllogutils.CallTypeHelper;
 import com.android.dialer.calllogutils.CallTypeIconsView;
 import com.android.dialer.common.LogUtil;
-import com.android.dialer.compat.AppCompatConstants;
 import com.android.dialer.enrichedcall.historyquery.proto.HistoryResult;
 import com.android.dialer.enrichedcall.historyquery.proto.HistoryResult.Type;
+import com.android.dialer.glidephotomanager.PhotoInfo;
 import com.android.dialer.oem.MotorolaUtils;
 import com.android.dialer.util.DialerUtils;
 import com.android.dialer.util.IntentUtil;
-import com.android.incallui.QtiCallUtils;
-import com.android.voicemail.impl.SubscriptionInfoHelper;
 import org.codeaurora.ims.utils.QtiImsExtUtils;
+import android.telephony.SubscriptionInfo;
+import android.telephony.SubscriptionManager;
 
-/** ViewHolder for call entries in {@link CallDetailsActivity}. */
+
+/** ViewHolder for call entries in {@link OldCallDetailsActivity} or {@link CallDetailsActivity}. */
 public class CallDetailsEntryViewHolder extends ViewHolder {
+
+  /** Listener for the call details header */
+  interface CallDetailsEntryListener {
+    /** Shows RTT transcript. */
+    void showRttTranscript(String transcriptId, String primaryText, PhotoInfo photoInfo);
+  }
+
+  private final CallDetailsEntryListener callDetailsEntryListener;
 
   private final CallTypeIconsView callTypeIcon;
   private final TextView callTypeText;
@@ -56,16 +67,18 @@ public class CallDetailsEntryViewHolder extends ViewHolder {
 
   private final TextView multimediaDetails;
   private final TextView postCallNote;
+  private final TextView rttTranscript;
 
   private final ImageView multimediaImage;
 
-  // TODO: Display this when location is stored - b/36160042
+  // TODO(maxwelb): Display this when location is stored - a bug
   @SuppressWarnings("unused")
   private final TextView multimediaAttachmentsNumber;
 
   private final Context context;
 
-  public CallDetailsEntryViewHolder(View container) {
+  public CallDetailsEntryViewHolder(
+      View container, CallDetailsEntryListener callDetailsEntryListener) {
     super(container);
     context = container.getContext();
 
@@ -82,10 +95,14 @@ public class CallDetailsEntryViewHolder extends ViewHolder {
     multimediaImage = (ImageView) container.findViewById(R.id.multimedia_image);
     multimediaAttachmentsNumber =
         (TextView) container.findViewById(R.id.multimedia_attachments_number);
+    rttTranscript = container.findViewById(R.id.rtt_transcript);
+    this.callDetailsEntryListener = callDetailsEntryListener;
   }
 
   void setCallDetails(
       String number,
+      String primaryText,
+      PhotoInfo photoInfo,
       CallDetailsEntry entry,
       CallTypeHelper callTypeHelper,
       boolean showMultimediaDivider) {
@@ -93,13 +110,13 @@ public class CallDetailsEntryViewHolder extends ViewHolder {
     if ((entry.getFeatures() & Calls.FEATURES_HD_CALL) == Calls.FEATURES_HD_CALL) {
       switch (callType) {
         case Calls.INCOMING_TYPE :
-          callType = AppCompatConstants.INCOMING_IMS_TYPE;
+          callType = CallTypeHelper.INCOMING_IMS_TYPE;
           break;
         case Calls.OUTGOING_TYPE :
-          callType = AppCompatConstants.OUTGOING_IMS_TYPE;
+          callType = CallTypeHelper.OUTGOING_IMS_TYPE;
           break;
         case Calls.MISSED_TYPE :
-          callType = AppCompatConstants.MISSED_IMS_TYPE;
+          callType = CallTypeHelper.MISSED_IMS_TYPE;
           break;
         default:
       }
@@ -108,40 +125,71 @@ public class CallDetailsEntryViewHolder extends ViewHolder {
     boolean isPulledCall =
         (entry.getFeatures() & Calls.FEATURES_PULLED_EXTERNALLY)
             == Calls.FEATURES_PULLED_EXTERNALLY;
+    boolean isDuoCall = entry.getIsDuoCall();
+    boolean isRttCall =
+        BuildCompat.isAtLeastP()
+            && (entry.getFeatures() & Calls.FEATURES_RTT) == Calls.FEATURES_RTT;
 
     boolean  is4GConferenceEnabledSub = false;
-    SubscriptionInfoHelper subInfo = new SubscriptionInfoHelper(
-        context, entry.getAccountId());
-    int slotId = subInfo.getSimSlotIndex();
-    if (subInfo.hasSubId()) {
-      is4GConferenceEnabledSub = QtiImsExtUtils.isCarrierConfigEnabled(
-          slotId, context, "config_enable_conference_dialer");
-      LogUtil.i("CallDetailsEntryViewHolder.setCallDetails",
-          "is4GConferenceEnabledSub: " + is4GConferenceEnabledSub);
+    SubscriptionInfo si = SubscriptionManager.from(context).
+            getActiveSubscriptionInfoForIccIndex(entry.getAccountId());
+    if (si != null) {
+        int slotId = si.getSimSlotIndex();
+        int subId = si.getSubscriptionId();
+        if (SubscriptionManager.isValidSubscriptionId(subId)) {
+          is4GConferenceEnabledSub = QtiImsExtUtils.isCarrierConfigEnabled(
+              slotId, context, "config_enable_conference_dialer");
+          LogUtil.i("CallDetailsEntryViewHolder.setCallDetails",
+              "is4GConferenceEnabledSub: " + is4GConferenceEnabledSub);
+        }
     }
 
     callTime.setTextColor(getColorForCallType(context, callType));
     callTypeIcon.clear();
     callTypeIcon.add(callType);
     callTypeIcon.setShowVideo(isVideoCall);
-    callTypeIcon.setShowHd(MotorolaUtils.shouldShowHdIconInCallLog(context, entry.getFeatures()));
+    callTypeIcon.setShowHd(
+        (entry.getFeatures() & Calls.FEATURES_HD_CALL) == Calls.FEATURES_HD_CALL);
     callTypeIcon.setShowWifi(
         MotorolaUtils.shouldShowWifiIconInCallLog(context, entry.getFeatures()));
+    if (BuildCompat.isAtLeastP()) {
+      callTypeIcon.setShowRtt((entry.getFeatures() & Calls.FEATURES_RTT) == Calls.FEATURES_RTT);
+    }
 
-    callTypeText.setText(callTypeHelper.getCallTypeText(callType, isVideoCall, isPulledCall));
-    callTime.setText(CallEntryFormatter.formatDate(context, entry.getDate()));
+    callTypeText.setText(
+        callTypeHelper.getCallTypeText(callType, isVideoCall, isPulledCall, isDuoCall));
+    callTime.setText(CallLogDates.formatDate(context, entry.getDate()));
+
     if (CallTypeHelper.isMissedCallType(callType) || is4GConferenceEnabledSub) {
       callDuration.setVisibility(View.GONE);
     } else {
       callDuration.setVisibility(View.VISIBLE);
       callDuration.setText(
-          CallEntryFormatter.formatDurationAndDataUsage(
+          CallLogDurations.formatDurationAndDataUsage(
               context, entry.getDuration(), entry.getDataUsage()));
       callDuration.setContentDescription(
-          CallEntryFormatter.formatDurationAndDataUsageA11y(
+          CallLogDurations.formatDurationAndDataUsageA11y(
               context, entry.getDuration(), entry.getDataUsage()));
     }
     setMultimediaDetails(number, entry, showMultimediaDivider);
+    if (isRttCall) {
+      if (entry.getHasRttTranscript()) {
+        rttTranscript.setText(R.string.rtt_transcript_link);
+        rttTranscript.setTextAppearance(R.style.RttTranscriptLink);
+        rttTranscript.setClickable(true);
+        rttTranscript.setOnClickListener(
+            v ->
+                callDetailsEntryListener.showRttTranscript(
+                    entry.getCallMappingId(), primaryText, photoInfo));
+      } else {
+        rttTranscript.setText(R.string.rtt_transcript_not_available);
+        rttTranscript.setTextAppearance(R.style.RttTranscriptMessage);
+        rttTranscript.setClickable(false);
+      }
+      rttTranscript.setVisibility(View.VISIBLE);
+    } else {
+      rttTranscript.setVisibility(View.GONE);
+    }
   }
 
   private void setMultimediaDetails(String number, CallDetailsEntry entry, boolean showDivider) {
@@ -154,6 +202,7 @@ public class CallDetailsEntryViewHolder extends ViewHolder {
       HistoryResult historyResult = entry.getHistoryResults(0);
       multimediaDetailsContainer.setVisibility(View.VISIBLE);
       multimediaDetailsContainer.setOnClickListener((v) -> startSmsIntent(context, number));
+      multimediaImageContainer.setOnClickListener((v) -> startSmsIntent(context, number));
       multimediaImageContainer.setClipToOutline(true);
 
       if (!TextUtils.isEmpty(historyResult.getImageUri())) {
@@ -199,23 +248,23 @@ public class CallDetailsEntryViewHolder extends ViewHolder {
 
   private static @ColorInt int getColorForCallType(Context context, int callType) {
     switch (callType) {
-      case AppCompatConstants.CALLS_OUTGOING_TYPE:
-      case AppCompatConstants.OUTGOING_IMS_TYPE:
-      case AppCompatConstants.CALLS_VOICEMAIL_TYPE:
-      case AppCompatConstants.CALLS_BLOCKED_TYPE:
-      case AppCompatConstants.CALLS_INCOMING_TYPE:
-      case AppCompatConstants.INCOMING_IMS_TYPE:
-      case AppCompatConstants.CALLS_ANSWERED_EXTERNALLY_TYPE:
-      case AppCompatConstants.CALLS_REJECTED_TYPE:
+      case Calls.OUTGOING_TYPE:
+      case CallTypeHelper.OUTGOING_IMS_TYPE:
+      case Calls.VOICEMAIL_TYPE:
+      case Calls.BLOCKED_TYPE:
+      case Calls.INCOMING_TYPE:
+      case CallTypeHelper.INCOMING_IMS_TYPE:
+      case Calls.ANSWERED_EXTERNALLY_TYPE:
+      case Calls.REJECTED_TYPE:
         return ContextCompat.getColor(context, R.color.dialer_secondary_text_color);
-      case AppCompatConstants.CALLS_MISSED_TYPE:
-      case AppCompatConstants.MISSED_IMS_TYPE:
+      case Calls.MISSED_TYPE:
+      case CallTypeHelper.MISSED_IMS_TYPE:
       default:
         // It is possible for users to end up with calls with unknown call types in their
         // call history, possibly due to 3rd party call log implementations (e.g. to
         // distinguish between rejected and missed calls). Instead of crashing, just
         // assume that all unknown call types are missed calls.
-        return ContextCompat.getColor(context, R.color.missed_call);
+        return ContextCompat.getColor(context, R.color.dialer_red);
     }
   }
 }

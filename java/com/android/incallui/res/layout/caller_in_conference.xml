@@ -62,6 +62,15 @@
         android:gravity="bottom"
         android:orientation="horizontal">
 
+        <!-- Status (only support on hold now) -->
+        <TextView
+            android:id="@+id/conferenceCallerStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            style="@style/Dialer.TextAppearance.Secondary"
+            android:enabled="false"
+            android:visibility="gone"/>
+
         <!-- Number -->
         <TextView
           android:id="@+id/conferenceCallerNumber"
@@ -72,18 +81,6 @@
           android:singleLine="true"
           android:textColor="@color/conference_call_manager_secondary_text_color"
           android:textSize="14sp"/>
-
-        <!-- Number type -->
-        <TextView
-          android:id="@+id/conferenceCallerNumberType"
-          android:layout_width="wrap_content"
-          android:layout_height="wrap_content"
-          android:ellipsize="marquee"
-          android:gravity="start"
-          android:singleLine="true"
-          android:textAllCaps="true"
-          android:textColor="@color/conference_call_manager_secondary_text_color"
-          android:textSize="12sp"/>
 
       </LinearLayout>  <!-- End of caller number -->
 
@@ -105,12 +102,12 @@
     android:id="@+id/conferenceCallerSeparate"
     android:layout_width="@dimen/conference_call_manager_button_dimension"
     android:layout_height="@dimen/conference_call_manager_button_dimension"
-    android:background="?android:selectableItemBackgroundBorderless"
+    android:background="?android:attr/selectableItemBackgroundBorderless"
     android:clickable="true"
     android:contentDescription="@string/goPrivate"
     android:scaleType="center"
     android:src="@drawable/ic_call_split_white_24dp"
-    android:tint="@color/conference_call_manager_icon_color"/>
+    android:tint="?colorIcon"/>
 
   <!-- "Disconnect" button which terminates the connection with this caller. -->
   <ImageButton
@@ -118,11 +115,11 @@
     android:layout_width="@dimen/conference_call_manager_button_dimension"
     android:layout_height="@dimen/conference_call_manager_button_dimension"
     android:layout_marginStart="8dp"
-    android:background="?android:selectableItemBackgroundBorderless"
+    android:background="?android:attr/selectableItemBackgroundBorderless"
     android:clickable="true"
     android:contentDescription="@string/conference_caller_disconnect_content_description"
     android:scaleType="center"
-    android:src="@drawable/ic_call_end_white_24dp"
-    android:tint="@color/conference_call_manager_icon_color"/>
+    android:src="@drawable/quantum_ic_call_end_white_24"
+    android:tint="?colorIcon"/>
 
 </LinearLayout>  <!-- End of single list element -->

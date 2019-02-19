@@ -24,8 +24,8 @@ import android.support.annotation.NonNull;
 import android.support.annotation.VisibleForTesting;
 import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
-import com.android.dialer.configprovider.ConfigProviderBindings;
-import com.android.dialer.util.DialerUtils;
+import com.android.dialer.configprovider.ConfigProviderComponent;
+import com.android.dialer.storage.StorageComponent;
 import com.android.incallui.util.AccessibilityUtil;
 
 /**
@@ -72,8 +72,7 @@ public class AnswerHintFactory {
   }
 
   public static void increaseAnsweredCount(Context context) {
-    SharedPreferences sharedPreferences =
-        DialerUtils.getDefaultSharedPreferenceForDeviceProtectedStorageContext(context);
+    SharedPreferences sharedPreferences = StorageComponent.get(context).unencryptedSharedPrefs();
     int answeredCount = sharedPreferences.getInt(ANSWERED_COUNT_PREFERENCE_KEY, 0);
     sharedPreferences.edit().putInt(ANSWERED_COUNT_PREFERENCE_KEY, answeredCount + 1).apply();
   }
@@ -92,10 +91,13 @@ public class AnswerHintFactory {
     // If the user has gone through the process a few times we can assume they have learnt the
     // method.
     int answeredCount =
-        DialerUtils.getDefaultSharedPreferenceForDeviceProtectedStorageContext(context)
+        StorageComponent.get(context)
+            .unencryptedSharedPrefs()
             .getInt(ANSWERED_COUNT_PREFERENCE_KEY, 0);
     long threshold =
-        ConfigProviderBindings.get(context).getLong(CONFIG_ANSWER_HINT_ANSWERED_THRESHOLD_KEY, 3);
+        ConfigProviderComponent.get(context)
+            .getConfigProvider()
+            .getLong(CONFIG_ANSWER_HINT_ANSWERED_THRESHOLD_KEY, 3);
     LogUtil.i(
         "AnswerHintFactory.shouldShowAnswerHint",
         "answerCount: %d, threshold: %d",
@@ -110,7 +112,8 @@ public class AnswerHintFactory {
    *     string.
    */
   private static boolean isDeviceWhitelisted(Context context, String device) {
-    return ConfigProviderBindings.get(context)
+    return ConfigProviderComponent.get(context)
+        .getConfigProvider()
         .getString(CONFIG_ANSWER_HINT_WHITELISTED_DEVICES_KEY, DEFAULT_WHITELISTED_DEVICES_CSV)
         .contains("/" + device + "/");
   }

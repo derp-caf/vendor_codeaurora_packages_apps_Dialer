@@ -19,15 +19,18 @@ package com.android.incallui;
 import android.content.Context;
 import android.content.Intent;
 import android.os.IBinder;
+import android.os.Trace;
 import android.telecom.Call;
 import android.telecom.CallAudioState;
 import android.telecom.InCallService;
 import com.android.dialer.blocking.FilteredNumberAsyncQueryHandler;
+import com.android.dialer.feedback.FeedbackComponent;
 import com.android.incallui.audiomode.AudioModeProvider;
 import com.android.incallui.call.CallList;
 import com.android.incallui.call.ExternalCallList;
 import com.android.incallui.call.TelecomAdapter;
-import org.codeaurora.ims.utils.QtiCarrierConfigHelper;
+import com.android.incallui.speakeasy.SpeakEasyCallManager;
+import com.android.incallui.speakeasy.SpeakEasyComponent;
 
 /**
  * Used to receive updates about calls from the Telecom component. This service is bound to Telecom
@@ -38,37 +41,62 @@ import org.codeaurora.ims.utils.QtiCarrierConfigHelper;
 public class InCallServiceImpl extends InCallService {
 
   private ReturnToCallController returnToCallController;
+  private CallList.Listener feedbackListener;
+  // We only expect there to be one speakEasyCallManager to be instantiated at a time.
+  // We did not use a singleton SpeakEasyCallManager to avoid holding on to state beyond the
+  // lifecycle of this service, because the singleton is associated with the state of the
+  // Application, not this service.
+  private SpeakEasyCallManager speakEasyCallManager;
 
   @Override
   public void onCallAudioStateChanged(CallAudioState audioState) {
+    Trace.beginSection("InCallServiceImpl.onCallAudioStateChanged");
     AudioModeProvider.getInstance().onAudioStateChanged(audioState);
+    Trace.endSection();
   }
 
   @Override
   public void onBringToForeground(boolean showDialpad) {
+    Trace.beginSection("InCallServiceImpl.onBringToForeground");
     InCallPresenter.getInstance().onBringToForeground(showDialpad);
+    Trace.endSection();
   }
 
   @Override
   public void onCallAdded(Call call) {
+    Trace.beginSection("InCallServiceImpl.onCallAdded");
     InCallPresenter.getInstance().onCallAdded(call);
+    Trace.endSection();
   }
 
   @Override
   public void onCallRemoved(Call call) {
+    Trace.beginSection("InCallServiceImpl.onCallRemoved");
+    speakEasyCallManager.onCallRemoved(CallList.getInstance().getDialerCallFromTelecomCall(call));
+
     InCallPresenter.getInstance().onCallRemoved(call);
+    Trace.endSection();
   }
 
   @Override
   public void onCanAddCallChanged(boolean canAddCall) {
+    Trace.beginSection("InCallServiceImpl.onCanAddCallChanged");
     InCallPresenter.getInstance().onCanAddCallChanged(canAddCall);
+    Trace.endSection();
+  }
+
+  @Override
+  public void onCreate() {
+    super.onCreate();
+    this.speakEasyCallManager = SpeakEasyComponent.get(this).speakEasyCallManager();
   }
 
   @Override
   public IBinder onBind(Intent intent) {
+    Trace.beginSection("InCallServiceImpl.onBind");
     final Context context = getApplicationContext();
-    QtiCarrierConfigHelper.getInstance().setup(context);
     final ContactInfoCache contactInfoCache = ContactInfoCache.getInstance(context);
+    AudioModeProvider.getInstance().initializeAudioState(this);
     InCallPresenter.getInstance()
         .setUp(
             context,
@@ -79,36 +107,47 @@ public class InCallServiceImpl extends InCallService {
             contactInfoCache,
             new ProximitySensor(
                 context, AudioModeProvider.getInstance(), new AccelerometerListener(context)),
-            new FilteredNumberAsyncQueryHandler(context));
+            new FilteredNumberAsyncQueryHandler(context),
+            speakEasyCallManager);
     InCallPresenter.getInstance().onServiceBind();
     InCallPresenter.getInstance().maybeStartRevealAnimation(intent);
     TelecomAdapter.getInstance().setInCallService(this);
-    if (ReturnToCallController.isEnabled(this)) {
-      returnToCallController = new ReturnToCallController(this);
-    }
+    returnToCallController =
+        new ReturnToCallController(this, ContactInfoCache.getInstance(context));
+    feedbackListener = FeedbackComponent.get(context).getCallFeedbackListener();
+    CallList.getInstance().addListener(feedbackListener);
 
-    return super.onBind(intent);
+    IBinder iBinder = super.onBind(intent);
+    Trace.endSection();
+    return iBinder;
   }
 
   @Override
   public boolean onUnbind(Intent intent) {
+    Trace.beginSection("InCallServiceImpl.onUnbind");
     super.onUnbind(intent);
 
     InCallPresenter.getInstance().onServiceUnbind();
     tearDown();
 
+    Trace.endSection();
     return false;
   }
 
   private void tearDown() {
+    Trace.beginSection("InCallServiceImpl.tearDown");
     Log.v(this, "tearDown");
     // Tear down the InCall system
-    TelecomAdapter.getInstance().clearInCallService();
     InCallPresenter.getInstance().tearDown();
+    TelecomAdapter.getInstance().clearInCallService();
     if (returnToCallController != null) {
       returnToCallController.tearDown();
       returnToCallController = null;
     }
-    QtiCarrierConfigHelper.getInstance().teardown();
+    if (feedbackListener != null) {
+      CallList.getInstance().removeListener(feedbackListener);
+      feedbackListener = null;
+    }
+    Trace.endSection();
   }
 }

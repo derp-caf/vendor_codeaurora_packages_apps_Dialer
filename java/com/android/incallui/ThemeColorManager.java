@@ -46,17 +46,9 @@ public class ThemeColorManager {
    * determine the theme color for InCallUI.
    */
   @Nullable private PhoneAccountHandle pendingPhoneAccountHandle;
-  private PhoneAccountHandle mCurrentPhoneAccountHandle;
-  private int mHighlightColor = PhoneAccount.NO_HIGHLIGHT_COLOR;
-  private TelecomManager mTelecomManager;
 
   public ThemeColorManager(MaterialColorMapUtils colorMap) {
     this.colorMap = colorMap;
-  }
-
-  public ThemeColorManager(Context context, MaterialColorMapUtils colorMap) {
-    this.colorMap = colorMap;
-    mTelecomManager = context.getSystemService(TelecomManager.class);
   }
 
   public void setPendingPhoneAccountHandle(@Nullable PhoneAccountHandle pendingPhoneAccountHandle) {
@@ -65,14 +57,16 @@ public class ThemeColorManager {
 
   public void onForegroundCallChanged(Context context, @Nullable DialerCall newForegroundCall) {
     if (newForegroundCall == null) {
-      updateThemeColors(context, pendingPhoneAccountHandle, false);
+      updateThemeColors(context, getHighlightColor(context, pendingPhoneAccountHandle), false);
     } else {
-      updateThemeColors(context, newForegroundCall.getAccountHandle(), newForegroundCall.isSpam());
+      updateThemeColors(
+          context,
+          getHighlightColor(context, newForegroundCall.getAccountHandle()),
+          newForegroundCall.isSpam());
     }
   }
 
-  private void updateThemeColors(
-      Context context, @Nullable PhoneAccountHandle handle, boolean isSpam) {
+  private void updateThemeColors(Context context, @ColorInt int highlightColor, boolean isSpam) {
     MaterialPalette palette;
     if (isSpam) {
       palette =
@@ -82,7 +76,6 @@ public class ThemeColorManager {
       backgroundColorBottom = context.getColor(R.color.incall_background_gradient_spam_bottom);
       backgroundColorSolid = context.getColor(R.color.incall_background_multiwindow_spam);
     } else {
-      @ColorInt int highlightColor = getHighlightColor(context, handle);
       palette = colorMap.calculatePrimaryAndSecondaryColor(highlightColor);
       backgroundColorTop = context.getColor(R.color.incall_background_gradient_top);
       backgroundColorMiddle = context.getColor(R.color.incall_background_gradient_middle);
@@ -105,17 +98,9 @@ public class ThemeColorManager {
   @ColorInt
   private int getHighlightColor(Context context, @Nullable PhoneAccountHandle handle) {
     if (handle != null) {
-      if (handle.equals(mCurrentPhoneAccountHandle)) {
-        return mHighlightColor;
-      }
-      mCurrentPhoneAccountHandle = handle;
-      if (mTelecomManager == null) {
-          mTelecomManager = context.getSystemService(TelecomManager.class);
-      }
-      PhoneAccount account = mTelecomManager.getPhoneAccount(handle);
+      PhoneAccount account = context.getSystemService(TelecomManager.class).getPhoneAccount(handle);
       if (account != null) {
-        mHighlightColor = account.getHighlightColor();
-        return mHighlightColor;
+        return account.getHighlightColor();
       }
     }
     return PhoneAccount.NO_HIGHLIGHT_COLOR;

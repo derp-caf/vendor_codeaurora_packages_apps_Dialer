@@ -18,11 +18,14 @@ package com.android.incallui.incall.impl;
 
 import android.animation.AnimatorInflater;
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.content.res.TypedArray;
+import android.graphics.Color;
 import android.graphics.PorterDuff.Mode;
 import android.graphics.drawable.Drawable;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.support.annotation.ColorInt;
 import android.support.annotation.DrawableRes;
 import android.support.annotation.StringRes;
 import android.text.TextUtils.TruncateAt;
@@ -31,7 +34,6 @@ import android.view.Gravity;
 import android.view.SoundEffectConstants;
 import android.widget.Checkable;
 import android.widget.ImageView;
-import android.widget.ImageView.ScaleType;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -44,6 +46,7 @@ public class CheckableLabeledButton extends LinearLayout implements Checkable {
   private boolean isChecked;
   private OnCheckedChangeListener onCheckedChangeListener;
   private ImageView iconView;
+  @DrawableRes private int iconResource = 0;
   private TextView labelView;
   private Drawable background;
   private Drawable backgroundMore;
@@ -64,8 +67,10 @@ public class CheckableLabeledButton extends LinearLayout implements Checkable {
     CharSequence labelText;
     boolean enabled;
 
-    backgroundMore = getResources().getDrawable(R.drawable.incall_button_background_more, null);
-    background = getResources().getDrawable(R.drawable.incall_button_background, null);
+    backgroundMore =
+        getResources().getDrawable(R.drawable.incall_button_background_more, context.getTheme());
+    background =
+        getResources().getDrawable(R.drawable.incall_button_background, context.getTheme());
 
     TypedArray typedArray =
         context.obtainStyledAttributes(attrs, R.styleable.CheckableLabeledButton);
@@ -78,17 +83,22 @@ public class CheckableLabeledButton extends LinearLayout implements Checkable {
     setPadding(paddingSize, paddingSize, paddingSize, paddingSize);
 
     int iconSize = getResources().getDimensionPixelSize(R.dimen.incall_labeled_button_size);
+    int imageSize = getResources().getDimensionPixelSize(R.dimen.incall_labeled_button_icon_size);
+    int iconPadding = (iconSize - imageSize) / 2;
 
     iconView = new ImageView(context, null, android.R.style.Widget_Material_Button_Colored);
     LayoutParams iconParams = generateDefaultLayoutParams();
     iconParams.width = iconSize;
     iconParams.height = iconSize;
     iconView.setLayoutParams(iconParams);
-    iconView.setScaleType(ScaleType.CENTER_INSIDE);
+    iconView.setPadding(iconPadding, iconPadding, iconPadding, iconPadding);
     iconView.setImageDrawable(icon);
     iconView.setImageTintMode(Mode.SRC_IN);
-    iconView.setImageTintList(getResources().getColorStateList(R.color.incall_button_icon, null));
-    iconView.setBackground(getResources().getDrawable(R.drawable.incall_button_background, null));
+    iconView.setImageTintList(
+        getResources().getColorStateList(R.color.incall_button_icon, context.getTheme()));
+
+    iconView.setBackground(
+        getResources().getDrawable(R.drawable.incall_button_background, context.getTheme()));
     iconView.setDuplicateParentStateEnabled(true);
     iconView.setElevation(getResources().getDimension(R.dimen.incall_button_elevation));
     iconView.setStateListAnimator(
@@ -124,8 +134,22 @@ public class CheckableLabeledButton extends LinearLayout implements Checkable {
     labelView.setAlpha(isEnabled() ? 1f : DISABLED_STATE_OPACITY);
   }
 
+  public void setCheckedColor(@ColorInt int color) {
+    iconView.setImageTintList(
+        new ColorStateList(
+            new int[][] {new int[] {android.R.attr.state_checked}, new int[] {}},
+            new int[] {color, Color.WHITE}));
+  }
+
+  public Drawable getIconDrawable() {
+    return iconView.getDrawable();
+  }
+
   public void setIconDrawable(@DrawableRes int drawableRes) {
-    iconView.setImageResource(drawableRes);
+    if (iconResource != drawableRes) {
+      iconView.setImageResource(drawableRes);
+      iconResource = drawableRes;
+    }
   }
 
   public void setLabelText(@StringRes int stringRes) {

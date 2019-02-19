@@ -16,6 +16,7 @@
 
 package com.android.incallui.incall.impl;
 
+import android.graphics.drawable.AnimationDrawable;
 import android.support.annotation.CallSuper;
 import android.support.annotation.DrawableRes;
 import android.support.annotation.NonNull;
@@ -30,7 +31,6 @@ import com.android.incallui.incall.protocol.InCallButtonIds;
 import com.android.incallui.incall.protocol.InCallButtonUiDelegate;
 import com.android.incallui.incall.protocol.InCallScreenDelegate;
 import com.android.incallui.speakerbuttonlogic.SpeakerButtonInfo;
-import com.android.incallui.speakerbuttonlogic.SpeakerButtonInfo.IconSize;
 
 /** Manages a single button. */
 interface ButtonController {
@@ -292,7 +292,7 @@ interface ButtonController {
           R.string.incall_content_description_muted,
           R.string.incall_content_description_unmuted,
           R.string.incall_label_mute,
-          R.drawable.quantum_ic_mic_off_white_36);
+          R.drawable.quantum_ic_mic_off_vd_theme_24);
     }
 
     @Override
@@ -311,11 +311,11 @@ interface ButtonController {
     private CheckableLabeledButton button;
 
     @StringRes private int label = R.string.incall_label_speaker;
-    @DrawableRes private int icon = R.drawable.quantum_ic_volume_up_white_36;
-    private boolean checkable;
+    @DrawableRes private int icon = R.drawable.quantum_ic_volume_up_vd_theme_24;
+    private boolean nonBluetoothMode;
     private CharSequence contentDescription;
-    private CharSequence checkedContentDescription;
-    private CharSequence uncheckedContentDescription;
+    private CharSequence isOnContentDescription;
+    private CharSequence isOffContentDescription;
 
     public SpeakerButtonController(@NonNull InCallButtonUiDelegate delegate) {
       this.delegate = delegate;
@@ -367,31 +367,31 @@ interface ButtonController {
         button.setEnabled(isEnabled && isAllowed);
         button.setVisibility(View.VISIBLE);
         button.setChecked(isChecked);
-        button.setOnClickListener(checkable ? null : this);
-        button.setOnCheckedChangeListener(checkable ? this : null);
+        button.setOnClickListener(nonBluetoothMode ? null : this);
+        button.setOnCheckedChangeListener(nonBluetoothMode ? this : null);
         button.setLabelText(label);
         button.setIconDrawable(icon);
         button.setContentDescription(
-            isChecked ? checkedContentDescription : uncheckedContentDescription);
-        button.setShouldShowMoreIndicator(!checkable);
+            (nonBluetoothMode && !isChecked) ? isOffContentDescription : isOnContentDescription);
+        button.setShouldShowMoreIndicator(!nonBluetoothMode);
       }
     }
 
     public void setAudioState(CallAudioState audioState) {
-      SpeakerButtonInfo info = new SpeakerButtonInfo(audioState, IconSize.SIZE_36_DP);
+      SpeakerButtonInfo info = new SpeakerButtonInfo(audioState);
 
-      checkable = info.checkable;
+      nonBluetoothMode = info.nonBluetoothMode;
       isChecked = info.isChecked;
       label = info.label;
       icon = info.icon;
       @StringRes int contentDescriptionResId = info.contentDescription;
 
       contentDescription = delegate.getContext().getText(contentDescriptionResId);
-      checkedContentDescription =
+      isOnContentDescription =
           TextUtils.concat(
               contentDescription,
               delegate.getContext().getText(R.string.incall_talkback_speaker_on));
-      uncheckedContentDescription =
+      isOffContentDescription =
           TextUtils.concat(
               contentDescription,
               delegate.getContext().getText(R.string.incall_talkback_speaker_off));
@@ -406,7 +406,7 @@ interface ButtonController {
     @Override
     public void onCheckedChanged(CheckableLabeledButton checkableLabeledButton, boolean isChecked) {
       checkableLabeledButton.setContentDescription(
-          isChecked ? checkedContentDescription : uncheckedContentDescription);
+          isChecked ? isOnContentDescription : isOffContentDescription);
       delegate.toggleSpeakerphone();
     }
   }
@@ -420,7 +420,7 @@ interface ButtonController {
           0,
           0,
           R.string.incall_label_dialpad,
-          R.drawable.quantum_ic_dialpad_white_36);
+          R.drawable.quantum_ic_dialpad_vd_theme_24);
     }
 
     @Override
@@ -438,7 +438,7 @@ interface ButtonController {
           R.string.incall_content_description_unhold,
           R.string.incall_content_description_hold,
           R.string.incall_label_hold,
-          R.drawable.quantum_ic_pause_white_36);
+          R.drawable.quantum_ic_pause_vd_theme_24);
     }
 
     @Override
@@ -473,7 +473,7 @@ interface ButtonController {
           InCallButtonIds.BUTTON_SWAP,
           R.string.incall_content_description_swap_calls,
           R.string.incall_label_swap,
-          R.drawable.quantum_ic_swap_calls_white_36);
+          R.drawable.quantum_ic_swap_calls_vd_theme_24);
       Assert.isNotNull(delegate);
     }
 
@@ -491,7 +491,7 @@ interface ButtonController {
           InCallButtonIds.BUTTON_MERGE,
           R.string.incall_content_description_merge_calls,
           R.string.incall_label_merge,
-          R.drawable.quantum_ic_call_merge_white_36);
+          R.drawable.quantum_ic_call_merge_vd_theme_24);
       Assert.isNotNull(delegate);
     }
 
@@ -509,13 +509,31 @@ interface ButtonController {
           InCallButtonIds.BUTTON_UPGRADE_TO_VIDEO,
           0,
           R.string.incall_label_videocall,
-          R.drawable.quantum_ic_videocam_white_36);
+          R.drawable.quantum_ic_videocam_vd_theme_24);
       Assert.isNotNull(delegate);
     }
 
     @Override
     public void onClick(View view) {
       delegate.changeToVideoClicked();
+    }
+  }
+
+  class UpgradeToRttButtonController extends SimpleNonCheckableButtonController {
+
+    public UpgradeToRttButtonController(@NonNull InCallButtonUiDelegate delegate) {
+      super(
+          delegate,
+          InCallButtonIds.BUTTON_UPGRADE_TO_RTT,
+          0,
+          R.string.incall_label_rttcall,
+          R.drawable.quantum_ic_rtt_vd_theme_24);
+      Assert.isNotNull(delegate);
+    }
+
+    @Override
+    public void onClick(View view) {
+      delegate.changeToRttClicked();
     }
   }
 
@@ -529,7 +547,7 @@ interface ButtonController {
           InCallButtonIds.BUTTON_MANAGE_VOICE_CONFERENCE,
           R.string.a11y_description_incall_label_manage_content,
           R.string.incall_label_manage,
-          R.drawable.quantum_ic_group_white_36);
+          R.drawable.quantum_ic_group_vd_theme_24);
       Assert.isNotNull(inCallScreenDelegate);
       this.inCallScreenDelegate = inCallScreenDelegate;
     }
@@ -550,7 +568,7 @@ interface ButtonController {
           InCallButtonIds.BUTTON_SWITCH_TO_SECONDARY,
           R.string.incall_content_description_swap_calls,
           R.string.incall_label_swap,
-          R.drawable.quantum_ic_swap_calls_white_36);
+          R.drawable.quantum_ic_swap_calls_vd_theme_24);
       Assert.isNotNull(inCallScreenDelegate);
       this.inCallScreenDelegate = inCallScreenDelegate;
     }
@@ -558,6 +576,26 @@ interface ButtonController {
     @Override
     public void onClick(View view) {
       inCallScreenDelegate.onSecondaryInfoClicked();
+    }
+  }
+
+  class SwapSimButtonController extends SimpleNonCheckableButtonController {
+
+    public SwapSimButtonController(InCallButtonUiDelegate delegate) {
+      super(
+          delegate,
+          InCallButtonIds.BUTTON_SWAP_SIM,
+          R.string.incall_content_description_swap_sim,
+          R.string.incall_label_swap_sim,
+          R.drawable.ic_sim_change_white);
+    }
+
+    @Override
+    public void onClick(View view) {
+      AnimationDrawable drawable = (AnimationDrawable) button.getIconDrawable();
+      drawable.stop(); // animation is one shot, stop it so it can be started again.
+      drawable.start();
+      delegate.swapSimClicked();
     }
   }
 }

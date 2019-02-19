@@ -17,8 +17,10 @@
 package com.android.incallui.videotech.empty;
 
 import android.content.Context;
-import android.telecom.InCallService.VideoCall;
+import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.telecom.InCallService.VideoCall;
+import android.telecom.PhoneAccountHandle;
 import com.android.dialer.common.Assert;
 import com.android.incallui.video.protocol.VideoCallScreen;
 import com.android.incallui.video.protocol.VideoCallScreenDelegate;
@@ -29,7 +31,7 @@ import com.android.incallui.videotech.utils.SessionModificationState;
 public class EmptyVideoTech implements VideoTech {
 
   @Override
-  public boolean isAvailable(Context context) {
+  public boolean isAvailable(Context context, PhoneAccountHandle phoneAccountHandle) {
     return false;
   }
 
@@ -49,13 +51,19 @@ public class EmptyVideoTech implements VideoTech {
   }
 
   @Override
+  public boolean isPaused() {
+    return false;
+  }
+
+  @Override
   public VideoCallScreenDelegate createVideoCallScreenDelegate(
       Context context, VideoCallScreen videoCallScreen) {
     throw Assert.createUnsupportedOperationFailException();
   }
 
   @Override
-  public void onCallStateChanged(Context context, int newState) {}
+  public void onCallStateChanged(
+      Context context, int newState, PhoneAccountHandle phoneAccountHandle) {}
 
   @Override
   public void onRemovedFromCallList() {}
@@ -66,7 +74,10 @@ public class EmptyVideoTech implements VideoTech {
   }
 
   @Override
-  public void upgradeToVideo() {}
+  public void upgradeToVideo(@NonNull Context context) {}
+
+  @Override
+  public void acceptVideoRequest(@NonNull Context context) {}
 
   @Override
   public void upgradeToVideo(int videoState) {}
@@ -81,8 +92,6 @@ public class EmptyVideoTech implements VideoTech {
     return -1;
   }
 
-  @Override
-  public void acceptVideoRequest() {}
 
   @Override
   public void acceptVideoRequestAsAudio() {}
@@ -102,7 +111,7 @@ public class EmptyVideoTech implements VideoTech {
   public void stopTransmission() {}
 
   @Override
-  public void resumeTransmission() {}
+  public void resumeTransmission(@NonNull Context context) {}
 
   @Override
   public void pause() {}
@@ -115,6 +124,14 @@ public class EmptyVideoTech implements VideoTech {
 
   @Override
   public void setDeviceOrientation(int rotation) {}
+
+  @Override
+  public void becomePrimary() {}
+
+  @Override
+  public com.android.dialer.logging.VideoTech.Type getVideoTechType() {
+    return com.android.dialer.logging.VideoTech.Type.NONE;
+  }
 
   @Override
   public VideoCall getVideoCall() {return null;}

@@ -17,10 +17,12 @@ package com.android.dialer.oem;
 
 import android.content.Context;
 import android.content.res.Resources;
+import android.provider.CallLog.Calls;
+import android.support.annotation.VisibleForTesting;
 import android.telephony.TelephonyManager;
 import com.android.dialer.common.LogUtil;
 import com.android.dialer.common.PackageUtils;
-import com.android.dialer.configprovider.ConfigProviderBindings;
+import com.android.dialer.configprovider.ConfigProviderComponent;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
@@ -31,26 +33,23 @@ public class MotorolaUtils {
       "hd_codec_blinking_icon_when_connecting_enabled";
   private static final String CONFIG_HD_CODEC_SHOW_ICON_IN_NOTIFICATION_ENABLED =
       "hd_codec_show_icon_in_notification_enabled";
-  private static final String CONFIG_HD_CODEC_SHOW_ICON_IN_CALL_LOG_ENABLED =
-      "hd_codec_show_icon_in_call_log_enabled";
   private static final String CONFIG_WIFI_CALL_SHOW_ICON_IN_CALL_LOG_ENABLED =
       "wifi_call_show_icon_in_call_log_enabled";
+
+  @VisibleForTesting
+  static final String CONFIG_DISABLE_PHONE_NUMBER_FORMATTING = "disable_phone_number_formatting";
 
   // This is used to check if a Motorola device supports HD voice call feature, which comes from
   // system feature setting.
   private static final String HD_CALL_FEATRURE = "com.motorola.software.sprint.hd_call";
   // This is used to check if a Motorola device supports WiFi call feature, by checking if a certain
   // package is enabled.
-  private static final String WIFI_CALL_PACKAGE_NAME = "com.motorola.sprintwfc";
+  @VisibleForTesting public static final String WIFI_CALL_PACKAGE_NAME = "com.motorola.sprintwfc";
   // Thi is used to check if a Motorola device supports hidden menu feature.
-  private static final String HIDDEN_MENU_FEATURE = "com.motorola.software.sprint.hidden_menu";
+  @VisibleForTesting
+  static final String HIDDEN_MENU_FEATURE = "com.motorola.software.sprint.hidden_menu";
 
-  // Feature flag indicates it's a HD call, currently this is only used by Motorola system build.
-  // TODO(b/35359461): Use reference to android.provider.CallLog once it's in new SDK.
-  private static final int FEATURES_HD_CALL = 0x4;
-  // Feature flag indicates it's a WiFi call, currently this is only used by Motorola system build.
-  private static final int FEATURES_WIFI = 0x8;
-
+  private static Boolean disablePhoneNumberFormattingForTest = null;
   private static boolean hasCheckedSprintWifiCall;
   private static boolean supportSprintWifiCall;
 
@@ -58,11 +57,16 @@ public class MotorolaUtils {
    * Returns true if SPN is specified and matched the current sim operator name. This is necessary
    * since mcc310-mnc000 is not sufficient to identify Sprint network.
    */
-  static boolean isSpnMatched(Context context) {
+  private static boolean isSpnMatched(Context context) {
     try {
-      String spnResource = context.getResources().getString(R.string.motorola_enabled_spn);
-      return spnResource.equalsIgnoreCase(
-          context.getSystemService(TelephonyManager.class).getSimOperatorName());
+      for (String spnResource :
+          context.getResources().getStringArray(R.array.motorola_enabled_spn)) {
+        if (spnResource.equalsIgnoreCase(
+            context.getSystemService(TelephonyManager.class).getSimOperatorName())) {
+          return true;
+        }
+      }
+      return false;
     } catch (Resources.NotFoundException exception) {
       // If SPN is not specified we consider as not necessary to enable/disable the feature.
       return true;
@@ -70,33 +74,41 @@ public class MotorolaUtils {
   }
 
   static boolean isSupportingHiddenMenu(Context context) {
-    return context.getPackageManager().hasSystemFeature(HIDDEN_MENU_FEATURE);
+    return context.getPackageManager().hasSystemFeature(HIDDEN_MENU_FEATURE)
+        && context.getResources().getBoolean(R.bool.motorola_hidden_menu_enabled);
   }
 
   public static boolean shouldBlinkHdIconWhenConnectingCall(Context context) {
-    return ConfigProviderBindings.get(context)
+    return ConfigProviderComponent.get(context)
+            .getConfigProvider()
             .getBoolean(CONFIG_HD_CODEC_BLINKING_ICON_WHEN_CONNECTING_CALL_ENABLED, true)
         && isSupportingSprintHdCodec(context);
   }
 
   public static boolean shouldShowHdIconInNotification(Context context) {
-    return ConfigProviderBindings.get(context)
+    return ConfigProviderComponent.get(context)
+            .getConfigProvider()
             .getBoolean(CONFIG_HD_CODEC_SHOW_ICON_IN_NOTIFICATION_ENABLED, true)
         && isSupportingSprintHdCodec(context);
   }
 
-  public static boolean shouldShowHdIconInCallLog(Context context, int features) {
-    return ConfigProviderBindings.get(context)
-            .getBoolean(CONFIG_HD_CODEC_SHOW_ICON_IN_CALL_LOG_ENABLED, true)
-        && (features & FEATURES_HD_CALL) == FEATURES_HD_CALL
-        && isSupportingSprintHdCodec(context);
+  public static boolean shouldShowWifiIconInCallLog(Context context, int features) {
+    return ConfigProviderComponent.get(context)
+            .getConfigProvider()
+            .getBoolean(CONFIG_WIFI_CALL_SHOW_ICON_IN_CALL_LOG_ENABLED, true)
+        && (features & Calls.FEATURES_WIFI) == Calls.FEATURES_WIFI
+        && isSupportingSprintWifiCall(context);
   }
 
-  public static boolean shouldShowWifiIconInCallLog(Context context, int features) {
-    return ConfigProviderBindings.get(context)
-            .getBoolean(CONFIG_WIFI_CALL_SHOW_ICON_IN_CALL_LOG_ENABLED, true)
-        && (features & FEATURES_WIFI) == FEATURES_WIFI
-        && isSupportingSprintWifiCall(context);
+  public static boolean shouldDisablePhoneNumberFormatting(Context context) {
+    if (disablePhoneNumberFormattingForTest != null) {
+      return disablePhoneNumberFormattingForTest;
+    }
+
+    return ConfigProviderComponent.get(context)
+            .getConfigProvider()
+            .getBoolean(CONFIG_DISABLE_PHONE_NUMBER_FORMATTING, true)
+        && context.getResources().getBoolean(R.bool.motorola_disable_phone_number_formatting);
   }
 
   /**
@@ -107,7 +119,7 @@ public class MotorolaUtils {
    * @return true if the input is consumed and the intent is launched
    */
   public static boolean handleSpecialCharSequence(Context context, String input) {
-    // TODO(b/35395377): Add check for Motorola devices.
+    // TODO(a bug): Add check for Motorola devices.
     return MotorolaHiddenMenuKeySequence.handleCharSequence(context, input);
   }
 
@@ -139,5 +151,16 @@ public class MotorolaUtils {
       hasCheckedSprintWifiCall = true;
     }
     return supportSprintWifiCall;
+  }
+
+  @VisibleForTesting(otherwise = VisibleForTesting.NONE)
+  public static void setDisablePhoneNumberFormattingForTest(boolean disablePhoneNumberFormatting) {
+    disablePhoneNumberFormattingForTest = disablePhoneNumberFormatting;
+  }
+
+  @VisibleForTesting
+  public static void resetForTest() {
+    hasCheckedSprintWifiCall = false;
+    supportSprintWifiCall = false;
   }
 }

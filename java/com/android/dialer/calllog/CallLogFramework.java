@@ -17,102 +17,99 @@
 package com.android.dialer.calllog;
 
 import android.content.Context;
-import android.content.SharedPreferences;
-import android.preference.PreferenceManager;
-import android.support.annotation.MainThread;
-import android.support.annotation.Nullable;
+import android.content.Intent;
+import android.support.v4.content.LocalBroadcastManager;
 import com.android.dialer.calllog.datasources.CallLogDataSource;
 import com.android.dialer.calllog.datasources.DataSources;
-import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
-import com.android.dialer.configprovider.ConfigProviderBindings;
+import com.android.dialer.common.concurrent.Annotations.Ui;
+import com.android.dialer.inject.ApplicationContext;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListeningExecutorService;
+import com.google.common.util.concurrent.MoreExecutors;
+import java.util.ArrayList;
+import java.util.List;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
 /**
- * Coordinates work across CallLog data sources to detect if the annotated call log is out of date
- * ("dirty") and update it if necessary.
+ * Coordinates work across {@link DataSources}.
  *
  * <p>All methods should be called on the main thread.
  */
 @Singleton
-public final class CallLogFramework implements CallLogDataSource.ContentObserverCallbacks {
+public final class CallLogFramework {
 
-  static final String PREF_FORCE_REBUILD = "callLogFrameworkForceRebuild";
-
+  private final Context appContext;
   private final DataSources dataSources;
-
-  @Nullable private CallLogUi ui;
+  private final AnnotatedCallLogMigrator annotatedCallLogMigrator;
+  private final ListeningExecutorService uiExecutor;
+  private final CallLogState callLogState;
 
   @Inject
-  CallLogFramework(DataSources dataSources) {
+  CallLogFramework(
+      @ApplicationContext Context appContext,
+      DataSources dataSources,
+      AnnotatedCallLogMigrator annotatedCallLogMigrator,
+      @Ui ListeningExecutorService uiExecutor,
+      CallLogState callLogState) {
+    this.appContext = appContext;
     this.dataSources = dataSources;
-  }
-
-  public boolean isNewCallLogEnabled(Context context) {
-    return ConfigProviderBindings.get(context).getBoolean("enable_new_call_log_tab", false);
+    this.annotatedCallLogMigrator = annotatedCallLogMigrator;
+    this.uiExecutor = uiExecutor;
+    this.callLogState = callLogState;
   }
 
   /** Registers the content observers for all data sources. */
-  public void registerContentObservers(Context appContext) {
+  public void registerContentObservers() {
     LogUtil.enterBlock("CallLogFramework.registerContentObservers");
-
-    if (!isNewCallLogEnabled(appContext)) {
-      LogUtil.i("CallLogFramework.registerContentObservers", "new call log not enabled");
-      return;
+    for (CallLogDataSource dataSource : dataSources.getDataSourcesIncludingSystemCallLog()) {
+      dataSource.registerContentObservers();
     }
+  }
+
+  /** Enables the framework. */
+  public ListenableFuture<Void> enable() {
+    registerContentObservers();
+    return annotatedCallLogMigrator.migrate();
+  }
+
+  /** Disables the framework. */
+  public ListenableFuture<Void> disable() {
+    return Futures.transform(
+        Futures.allAsList(disableDataSources(), annotatedCallLogMigrator.clearData()),
+        unused -> null,
+        MoreExecutors.directExecutor());
+  }
+
+  private ListenableFuture<Void> disableDataSources() {
+    LogUtil.enterBlock("CallLogFramework.disableDataSources");
 
     for (CallLogDataSource dataSource : dataSources.getDataSourcesIncludingSystemCallLog()) {
-      dataSource.registerContentObservers(appContext, this);
+      dataSource.unregisterContentObservers();
     }
-  }
 
-  /**
-   * Attach a UI component to the framework so that it may be notified of changes to the annotated
-   * call log.
-   */
-  public void attachUi(CallLogUi ui) {
-    LogUtil.enterBlock("CallLogFramework.attachUi");
-    this.ui = ui;
-  }
+    callLogState.clearData();
 
-  /**
-   * Detaches the UI from the framework. This should be called when the UI is hidden or destroyed
-   * and no longer needs to be notified of changes to the annotated call log.
-   */
-  public void detachUi() {
-    LogUtil.enterBlock("CallLogFramework.detachUi");
-    this.ui = null;
-  }
-
-  /**
-   * Marks the call log as dirty and notifies any attached UI components. If there are no UI
-   * components currently attached, this is an efficient operation since it is just writing a shared
-   * pref.
-   *
-   * <p>We don't want to actually force a rebuild when there is no UI running because we don't want
-   * to be constantly rebuilding the database when the device is sitting on a desk and receiving a
-   * lot of calls, for example.
-   */
-  @Override
-  @MainThread
-  public void markDirtyAndNotify(Context appContext) {
-    Assert.isMainThread();
-    LogUtil.enterBlock("CallLogFramework.markDirtyAndNotify");
-
-    SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(appContext);
-    sharedPreferences.edit().putBoolean(PREF_FORCE_REBUILD, true).apply();
-
-    if (ui != null) {
-      ui.invalidateUi();
+    // Clear data only after all content observers have been disabled.
+    List<ListenableFuture<Void>> allFutures = new ArrayList<>();
+    for (CallLogDataSource dataSource : dataSources.getDataSourcesIncludingSystemCallLog()) {
+      allFutures.add(dataSource.clearData());
     }
-  }
 
-  /** Callbacks invoked on listening UI components. */
-  public interface CallLogUi {
-
-    /** Notifies the call log UI that the annotated call log is out of date. */
-    @MainThread
-    void invalidateUi();
+    return Futures.transform(
+        Futures.allAsList(allFutures),
+        unused -> {
+          // Send a broadcast to the OldMainActivityPeer to remove the NewCallLogFragment and
+          // NewVoicemailFragment if it is currently attached. If this is not done, user interaction
+          // with the fragment could cause call log framework state to be unexpectedly written. For
+          // example scrolling could cause the AnnotatedCallLog to be read (which would trigger
+          // database creation).
+          LocalBroadcastManager.getInstance(appContext)
+              .sendBroadcastSync(new Intent("disableCallLogFramework"));
+          return null;
+        },
+        uiExecutor);
   }
 }

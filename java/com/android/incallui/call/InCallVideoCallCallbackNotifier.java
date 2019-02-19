@@ -27,13 +27,13 @@ import java.util.concurrent.ConcurrentHashMap;
 public class InCallVideoCallCallbackNotifier {
 
   /** Singleton instance of this class. */
-  private static InCallVideoCallCallbackNotifier sInstance = new InCallVideoCallCallbackNotifier();
+  private static InCallVideoCallCallbackNotifier instance = new InCallVideoCallCallbackNotifier();
 
   /**
    * ConcurrentHashMap constructor params: 8 is initial table size, 0.9f is load factor before
    * resizing, 1 means we only expect a single thread to access the map so make only a single shard
    */
-  private final Set<SurfaceChangeListener> mSurfaceChangeListeners =
+  private final Set<SurfaceChangeListener> surfaceChangeListeners =
       Collections.newSetFromMap(new ConcurrentHashMap<SurfaceChangeListener, Boolean>(8, 0.9f, 1));
   private final Set<VideoEventListener> mVideoEventListeners = Collections.newSetFromMap(
        new ConcurrentHashMap<VideoEventListener, Boolean>(8, 0.9f, 1));
@@ -51,7 +51,7 @@ public class InCallVideoCallCallbackNotifier {
 
   /** Static singleton accessor method. */
   public static InCallVideoCallCallbackNotifier getInstance() {
-    return sInstance;
+    return instance;
   }
 
   public void setUp() {
@@ -60,7 +60,7 @@ public class InCallVideoCallCallbackNotifier {
   public void tearDown() {
     mCallSessionEvent = CALL_SESSION_INVALID_EVENT;
     mVideoEventListeners.clear();
-    mSurfaceChangeListeners.clear();
+    surfaceChangeListeners.clear();
   }
 
   /**
@@ -70,7 +70,7 @@ public class InCallVideoCallCallbackNotifier {
    */
   public void addSurfaceChangeListener(@NonNull SurfaceChangeListener listener) {
     Objects.requireNonNull(listener);
-    mSurfaceChangeListeners.add(listener);
+    surfaceChangeListeners.add(listener);
   }
 
   /**
@@ -80,7 +80,7 @@ public class InCallVideoCallCallbackNotifier {
    */
   public void removeSurfaceChangeListener(@Nullable SurfaceChangeListener listener) {
     if (listener != null) {
-      mSurfaceChangeListeners.remove(listener);
+      surfaceChangeListeners.remove(listener);
     }
   }
 
@@ -92,7 +92,7 @@ public class InCallVideoCallCallbackNotifier {
    * @param height New peer height.
    */
   public void peerDimensionsChanged(DialerCall call, int width, int height) {
-    for (SurfaceChangeListener listener : mSurfaceChangeListeners) {
+    for (SurfaceChangeListener listener : surfaceChangeListeners) {
       listener.onUpdatePeerDimensions(call, width, height);
     }
   }
@@ -105,7 +105,7 @@ public class InCallVideoCallCallbackNotifier {
    * @param height The new camera video height.
    */
   public void cameraDimensionsChanged(DialerCall call, int width, int height) {
-    for (SurfaceChangeListener listener : mSurfaceChangeListeners) {
+    for (SurfaceChangeListener listener : surfaceChangeListeners) {
       listener.onCameraDimensionsChange(call, width, height);
     }
   }

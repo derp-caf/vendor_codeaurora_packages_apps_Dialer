@@ -17,31 +17,41 @@
 package com.android.dialer.location;
 
 import android.content.Context;
+import android.os.Trace;
 import com.google.i18n.phonenumbers.NumberParseException;
 import com.google.i18n.phonenumbers.PhoneNumberUtil;
 import com.google.i18n.phonenumbers.Phonenumber;
 import com.google.i18n.phonenumbers.geocoding.PhoneNumberOfflineGeocoder;
 import java.util.Locale;
 
+
 /** Static methods related to Geo. */
 public class GeoUtil {
 
-  /** @return the ISO 3166-1 two letters country code of the country the user is in. */
+  /**
+   * Return the ISO 3166-1 two letters country code of the country the user is in.
+   *
+   * <p>WARNING: {@link CountryDetector} caches TelephonyManager and other system services in a
+   * static. {@link CountryDetector#instance} must be reset in tests.
+   */
   public static String getCurrentCountryIso(Context context) {
     // The {@link CountryDetector} should never return null so this is safe to return as-is.
-    return CountryDetector.getInstance(context).getCurrentCountryIso();
+    Trace.beginSection("GeoUtil.getCurrentCountryIso");
+    String countryIso = CountryDetector.getInstance(context).getCurrentCountryIso();
+    Trace.endSection();
+    return countryIso;
   }
 
   public static String getGeocodedLocationFor(Context context, String phoneNumber) {
-    final PhoneNumberOfflineGeocoder geocoder = PhoneNumberOfflineGeocoder.getInstance();
-    final PhoneNumberUtil phoneNumberUtil = PhoneNumberUtil.getInstance();
-    try {
-      final Phonenumber.PhoneNumber structuredPhoneNumber =
-          phoneNumberUtil.parse(phoneNumber, getCurrentCountryIso(context));
-      final Locale locale = context.getResources().getConfiguration().locale;
-      return geocoder.getDescriptionForNumber(structuredPhoneNumber, locale);
-    } catch (NumberParseException e) {
-      return null;
-    }
+      final PhoneNumberOfflineGeocoder geocoder = PhoneNumberOfflineGeocoder.getInstance();
+      final PhoneNumberUtil phoneNumberUtil = PhoneNumberUtil.getInstance();
+      try {
+        final Phonenumber.PhoneNumber structuredPhoneNumber =
+            phoneNumberUtil.parse(phoneNumber, getCurrentCountryIso(context));
+        final Locale locale = context.getResources().getConfiguration().locale;
+        return geocoder.getDescriptionForNumber(structuredPhoneNumber, locale);
+      } catch (NumberParseException e) {
+        return null;
+      }
   }
 }

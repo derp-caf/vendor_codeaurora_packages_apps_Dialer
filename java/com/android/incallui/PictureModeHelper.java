@@ -95,7 +95,10 @@ public class PictureModeHelper implements InCallDetailsListener,
      */
     private static final String LOCAL_PREVIEW_SURFACE_SIZE_SETTING = "local_preview_surface_size";
 
+    Context context;
+
     public PictureModeHelper(Context context) {
+        this.context = context;
     }
 
     public void setUp(VideoCallPresenter videoCallPresenter) {
@@ -313,7 +316,6 @@ public class PictureModeHelper implements InCallDetailsListener,
     public void onStateChange(InCallPresenter.InCallState oldState,
             InCallPresenter.InCallState newState, CallList callList) {
         Log.d(this, "onStateChange oldState" + oldState + " newState=" + newState);
-
         if (newState == InCallPresenter.InCallState.NO_CALLS) {
             // Set both display preview video and incoming video to true as default display mode is
             // to show picture in picture.
@@ -558,76 +560,82 @@ public class PictureModeHelper implements InCallDetailsListener,
     public void onWiFiToLteHandover(DialerCall call) {}
 
     @Override
-    public void onSuplServiceMessage(String suplNotificationMessage) {}
-
-    @Override
     public void onSessionModificationStateChange(DialerCall call) {}
 
+    @Override
+    public void onSuplServiceMessage(String suplNotificationMessage) {}
+
     public void updateBlurredImageView(
-        TextureView textureView,
-        ImageView blurredImageView,
-        boolean isVideoEnabled,
-        float blurRadius,
-        float scaleFactor) {
-      boolean didBlur = false;
-      long startTimeMillis = SystemClock.elapsedRealtime();
-      if (!isVideoEnabled) {
-        int width = Math.round(textureView.getWidth() * scaleFactor);
-        int height = Math.round(textureView.getHeight() * scaleFactor);
-        // This call takes less than 10 milliseconds.
-        Bitmap bitmap = textureView.getBitmap(width, height);
-        if (bitmap != null) {
-          // TODO: When the view is first displayed after a rotation the bitmap is empty
-          // and thus this blur has no effect.
-          // This call can take 100 milliseconds.
-          final InCallActivity inCallActivity = InCallPresenter.getInstance().getActivity();
-          if (inCallActivity == null) {
-              return;
-          }
-          blur(inCallActivity, bitmap, blurRadius);
+      TextureView textureView,
+      ImageView blurredImageView,
+      boolean isVideoEnabled,
+      float blurRadius,
+      float scaleFactor) {
 
-          // TODO: Figure out why only have to apply the transform in landscape mode
-          if (width > height) {
-            bitmap =
-                Bitmap.createBitmap(
-                    bitmap,
-                    0,
-                    0,
-                    bitmap.getWidth(),
-                    bitmap.getHeight(),
-                    textureView.getTransform(null),
-                    true);
-          }
-
-          blurredImageView.setImageBitmap(bitmap);
-          blurredImageView.setVisibility(View.VISIBLE);
-          didBlur = true;
-        }
-      }
-      if (!didBlur) {
-        blurredImageView.setImageBitmap(null);
-        blurredImageView.setVisibility(View.GONE);
-      }
-
-      LogUtil.i(
-          "PictureModeHelper.updateBlurredImageView",
-          "didBlur: %b, took %d millis",
-          didBlur,
-          (SystemClock.elapsedRealtime() - startTimeMillis));
+    if (isVideoEnabled || context == null) {
+      blurredImageView.setImageBitmap(null);
+      blurredImageView.setVisibility(View.GONE);
+      return;
     }
 
-    private void blur(Context context, Bitmap image, float blurRadius) {
-      RenderScript renderScript = RenderScript.create(context);
-      ScriptIntrinsicBlur blurScript =
-          ScriptIntrinsicBlur.create(renderScript, Element.U8_4(renderScript));
-      Allocation allocationIn = Allocation.createFromBitmap(renderScript, image);
-      Allocation allocationOut = Allocation.createFromBitmap(renderScript, image);
-      blurScript.setRadius(blurRadius);
-      blurScript.setInput(allocationIn);
-      blurScript.forEach(allocationOut);
-      allocationOut.copyTo(image);
-      blurScript.destroy();
-      allocationIn.destroy();
-      allocationOut.destroy();
+    long startTimeMillis = SystemClock.elapsedRealtime();
+    int width = Math.round(textureView.getWidth() * scaleFactor);
+    int height = Math.round(textureView.getHeight() * scaleFactor);
+
+    LogUtil.i("VideoCallFragment.updateBlurredImageView", "width: %d, height: %d", width, height);
+
+    // This call takes less than 10 milliseconds.
+    Bitmap bitmap = textureView.getBitmap(width, height);
+
+    if (bitmap == null) {
+      blurredImageView.setImageBitmap(null);
+      blurredImageView.setVisibility(View.GONE);
+      return;
+    }
+
+    // TODO(mdooley): When the view is first displayed after a rotation the bitmap is empty
+    // and thus this blur has no effect.
+    // This call can take 100 milliseconds.
+    final InCallActivity inCallActivity = InCallPresenter.getInstance().getActivity();
+    if (inCallActivity == null) {
+      return;
+    }
+    blur(inCallActivity, bitmap, blurRadius);
+
+    // TODO(mdooley): Figure out why only have to apply the transform in landscape mode
+    if (width > height) {
+      bitmap =
+          Bitmap.createBitmap(
+              bitmap,
+              0,
+              0,
+              bitmap.getWidth(),
+              bitmap.getHeight(),
+              textureView.getTransform(null),
+              true);
+    }
+
+    blurredImageView.setImageBitmap(bitmap);
+    blurredImageView.setVisibility(View.VISIBLE);
+
+    LogUtil.i(
+        "VideoCallFragment.updateBlurredImageView",
+        "took %d millis",
+        (SystemClock.elapsedRealtime() - startTimeMillis));
+  }
+
+  private void blur(Context context, Bitmap image, float blurRadius) {
+    RenderScript renderScript = RenderScript.create(context);
+    ScriptIntrinsicBlur blurScript =
+        ScriptIntrinsicBlur.create(renderScript, Element.U8_4(renderScript));
+    Allocation allocationIn = Allocation.createFromBitmap(renderScript, image);
+    Allocation allocationOut = Allocation.createFromBitmap(renderScript, image);
+    blurScript.setRadius(blurRadius);
+    blurScript.setInput(allocationIn);
+    blurScript.forEach(allocationOut);
+    allocationOut.copyTo(image);
+    blurScript.destroy();
+    allocationIn.destroy();
+    allocationOut.destroy();
   }
 }

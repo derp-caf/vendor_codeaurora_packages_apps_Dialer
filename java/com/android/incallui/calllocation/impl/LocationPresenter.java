@@ -17,7 +17,6 @@
 package com.android.incallui.calllocation.impl;
 
 import android.content.Context;
-import android.graphics.drawable.Drawable;
 import android.location.Location;
 import android.os.AsyncTask;
 import com.android.dialer.common.LogUtil;
@@ -37,9 +36,8 @@ import java.util.Objects;
 public class LocationPresenter extends Presenter<LocationPresenter.LocationUi>
     implements LocationListener {
 
-  private Location mLastLocation;
-  private AsyncTask mDownloadMapTask;
-  private AsyncTask mReverseGeocodeTask;
+  private Location lastLocation;
+  private AsyncTask reverseGeocodeTask;
 
   LocationPresenter() {}
 
@@ -47,7 +45,7 @@ public class LocationPresenter extends Presenter<LocationPresenter.LocationUi>
   public void onUiReady(LocationUi ui) {
     LogUtil.i("LocationPresenter.onUiReady", "");
     super.onUiReady(ui);
-    updateLocation(mLastLocation, true);
+    updateLocation(lastLocation, true);
   }
 
   @Override
@@ -55,11 +53,8 @@ public class LocationPresenter extends Presenter<LocationPresenter.LocationUi>
     LogUtil.i("LocationPresenter.onUiUnready", "");
     super.onUiUnready(ui);
 
-    if (mDownloadMapTask != null) {
-      mDownloadMapTask.cancel(true);
-    }
-    if (mReverseGeocodeTask != null) {
-      mReverseGeocodeTask.cancel(true);
+    if (reverseGeocodeTask != null) {
+      reverseGeocodeTask.cancel(true);
     }
   }
 
@@ -71,13 +66,12 @@ public class LocationPresenter extends Presenter<LocationPresenter.LocationUi>
 
   private void updateLocation(Location location, boolean forceUpdate) {
     LogUtil.i("LocationPresenter.updateLocation", "location: " + location);
-    if (forceUpdate || !Objects.equals(mLastLocation, location)) {
-      mLastLocation = location;
+    if (forceUpdate || !Objects.equals(lastLocation, location)) {
+      lastLocation = location;
       int status = LocationHelper.checkLocation(location);
       LocationUi ui = getUi();
       if (status == LocationHelper.LOCATION_STATUS_OK) {
-        mDownloadMapTask = new DownloadMapImageTask(new WeakReference<>(ui)).execute(location);
-        mReverseGeocodeTask = new ReverseGeocodeTask(new WeakReference<>(ui)).execute(location);
+        reverseGeocodeTask = new ReverseGeocodeTask(new WeakReference<>(ui)).execute(location);
         if (ui != null) {
           ui.setLocation(location);
         } else {
@@ -102,8 +96,6 @@ public class LocationPresenter extends Presenter<LocationPresenter.LocationUi>
   public interface LocationUi extends Ui {
 
     void setAddress(String address);
-
-    void setMap(Drawable mapImage);
 
     void setLocation(Location location);
 

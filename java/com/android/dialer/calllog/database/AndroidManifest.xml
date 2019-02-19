@@ -19,7 +19,7 @@
   <application>
 
     <provider
-        android:authorities="com.codeaurora.dialer.annotatedcalllog"
+        android:authorities="org.codeaurora.dialer.annotatedcalllog"
         android:exported="false"
         android:multiprocess="false"
         android:name=".AnnotatedCallLogContentProvider"/>

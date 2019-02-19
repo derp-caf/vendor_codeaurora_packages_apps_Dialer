@@ -53,14 +53,13 @@ public final class CallLogQuery {
   public static final int DATA_USAGE = 21;
   public static final int TRANSCRIPTION = 22;
   public static final int CACHED_PHOTO_URI = 23;
-
-  @RequiresApi(VERSION_CODES.N)
   public static final int POST_DIAL_DIGITS = 24;
-
-  @RequiresApi(VERSION_CODES.N)
   public static final int VIA_NUMBER = 25;
 
-  private static final String[] PROJECTION_M =
+  @RequiresApi(VERSION_CODES.O)
+  public static final int TRANSCRIPTION_STATE = 26;
+
+  private static final String[] PROJECTION_N =
       new String[] {
         Calls._ID, // 0
         Calls.NUMBER, // 1
@@ -86,22 +85,24 @@ public final class CallLogQuery {
         Calls.DATA_USAGE, // 21
         Calls.TRANSCRIPTION, // 22
         Calls.CACHED_PHOTO_URI, // 23
+        CallLog.Calls.POST_DIAL_DIGITS, // 24
+        CallLog.Calls.VIA_NUMBER // 25
       };
 
-  private static final String[] PROJECTION_N;
+  private static final String[] PROJECTION_O;
+
+  // TODO(mdooley): remove when this becomes a public api
+  // Copied from android.provider.CallLog.Calls
+  private static final String TRANSCRIPTION_STATE_COLUMN = "transcription_state";
 
   static {
-    List<String> projectionList = new ArrayList<>(Arrays.asList(PROJECTION_M));
-    projectionList.add(CallLog.Calls.POST_DIAL_DIGITS);
-    projectionList.add(CallLog.Calls.VIA_NUMBER);
-    PROJECTION_N = projectionList.toArray(new String[projectionList.size()]);
+    List<String> projectionList = new ArrayList<>(Arrays.asList(PROJECTION_N));
+    projectionList.add(TRANSCRIPTION_STATE_COLUMN);
+    PROJECTION_O = projectionList.toArray(new String[projectionList.size()]);
   }
 
   @NonNull
   public static String[] getProjection() {
-    if (VERSION.SDK_INT >= VERSION_CODES.N) {
-      return PROJECTION_N;
-    }
-    return PROJECTION_M;
+    return VERSION.SDK_INT >= VERSION_CODES.O ? PROJECTION_O : PROJECTION_N;
   }
 }

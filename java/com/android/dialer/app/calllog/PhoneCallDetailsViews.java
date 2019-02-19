@@ -22,31 +22,41 @@ import android.widget.TextView;
 import android.widget.ImageView;
 import com.android.dialer.app.R;
 import com.android.dialer.calllogutils.CallTypeIconsView;
+import com.android.dialer.widget.BidiTextView;
 
 /** Encapsulates the views that are used to display the details of a phone call in the call log. */
 public final class PhoneCallDetailsViews {
 
-  public final TextView nameView;
+  public final BidiTextView nameView;
   public final View callTypeView;
   public final CallTypeIconsView callTypeIcons;
   public final TextView callLocationAndDate;
+  public final View transcriptionView;
   public final TextView voicemailTranscriptionView;
+  public final TextView voicemailTranscriptionBrandingView;
+  public final View voicemailTranscriptionRatingView;
   public final TextView callAccountLabel;
   public final ImageView callAccountIcon;
 
   private PhoneCallDetailsViews(
-      TextView nameView,
+      BidiTextView nameView,
       View callTypeView,
       CallTypeIconsView callTypeIcons,
       TextView callLocationAndDate,
+      View transcriptionView,
       TextView voicemailTranscriptionView,
+      TextView voicemailTranscriptionBrandingView,
+      View voicemailTranscriptionRatingView,
       ImageView callAccountIcon,
       TextView callAccountLabel) {
     this.nameView = nameView;
     this.callTypeView = callTypeView;
     this.callTypeIcons = callTypeIcons;
     this.callLocationAndDate = callLocationAndDate;
+    this.transcriptionView = transcriptionView;
     this.voicemailTranscriptionView = voicemailTranscriptionView;
+    this.voicemailTranscriptionBrandingView = voicemailTranscriptionBrandingView;
+    this.voicemailTranscriptionRatingView = voicemailTranscriptionRatingView;
     this.callAccountIcon = callAccountIcon;
     this.callAccountLabel = callAccountLabel;
   }
@@ -60,22 +70,28 @@ public final class PhoneCallDetailsViews {
    */
   public static PhoneCallDetailsViews fromView(View view) {
     return new PhoneCallDetailsViews(
-        (TextView) view.findViewById(R.id.name),
+        (BidiTextView) view.findViewById(R.id.name),
         view.findViewById(R.id.call_type),
         (CallTypeIconsView) view.findViewById(R.id.call_type_icons),
         (TextView) view.findViewById(R.id.call_location_and_date),
+        view.findViewById(R.id.transcription),
         (TextView) view.findViewById(R.id.voicemail_transcription),
+        (TextView) view.findViewById(R.id.voicemail_transcription_branding),
+        view.findViewById(R.id.voicemail_transcription_rating),
         (ImageView) view.findViewById(R.id.call_account_icon),
         (TextView) view.findViewById(R.id.call_account_label));
   }
 
   public static PhoneCallDetailsViews createForTest(Context context) {
     return new PhoneCallDetailsViews(
-        new TextView(context),
+        new BidiTextView(context),
         new View(context),
         new CallTypeIconsView(context),
         new TextView(context),
+        new View(context),
         new TextView(context),
+        new TextView(context),
+        new View(context),
         new ImageView(context),
         new TextView(context));
   }

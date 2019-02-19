@@ -24,17 +24,21 @@ public class AnswerBindings {
 
   public static AnswerScreen createAnswerScreen(
       String callId,
+      boolean isRttCall,
       boolean isVideoCall,
       boolean isVideoUpgradeRequest,
       boolean isSelfManagedCamera,
       boolean allowAnswerAndRelease,
-      boolean hasCallOnHold) {
+      boolean hasCallOnHold,
+      boolean allowSpeakEasy) {
     return AnswerFragment.newInstance(
         callId,
+        isRttCall,
         isVideoCall,
         isVideoUpgradeRequest,
         isSelfManagedCamera,
         allowAnswerAndRelease,
-        hasCallOnHold);
+        hasCallOnHold,
+        allowSpeakEasy);
   }
 }

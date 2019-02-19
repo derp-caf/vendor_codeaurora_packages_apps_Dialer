@@ -21,10 +21,15 @@ import android.graphics.drawable.Drawable;
 import android.support.annotation.Nullable;
 import android.telephony.PhoneNumberUtils;
 import android.text.BidiFormatter;
+import android.text.Spannable;
+import android.text.SpannableString;
+import android.text.Spanned;
 import android.text.TextDirectionHeuristics;
 import android.text.TextUtils;
+import android.text.style.ForegroundColorSpan;
 import com.android.dialer.common.Assert;
-import com.android.incallui.call.DialerCall.State;
+import com.android.dialer.common.LogUtil;
+import com.android.incallui.call.state.DialerCallState;
 import com.android.incallui.incall.protocol.PrimaryCallState;
 import com.android.incallui.incall.protocol.PrimaryInfo;
 import com.android.incallui.QtiCallUtils;
@@ -62,41 +67,47 @@ public class TopRow {
 
   public static Info getInfo(Context context, PrimaryCallState state, PrimaryInfo primaryInfo) {
     CharSequence label = null;
-    Drawable icon = state.connectionIcon;
+    Drawable icon = state.connectionIcon();
     boolean labelIsSingleLine = true;
 
-    if (state.isWifi) {
+    if (state.isWifi()) {
       icon = context.getDrawable(R.drawable.quantum_ic_network_wifi_vd_theme_24);
     }
 
-    if (state.state == State.INCOMING || state.state == State.CALL_WAITING) {
+    if (state.state() == DialerCallState.INCOMING
+        || state.state() == DialerCallState.CALL_WAITING) {
       // Call from
       // [Wi-Fi icon] Video call from
       // Hey Jake, pick up!
-      if (!TextUtils.isEmpty(state.callSubject)) {
-        label = state.callSubject;
+      if (!TextUtils.isEmpty(state.callSubject())) {
+        label = state.callSubject();
         labelIsSingleLine = false;
       } else {
         label = getLabelForIncoming(context, state);
         // Show phone number if it's not displayed in name (center row) or location field (bottom
         // row).
-        if (shouldShowNumber(primaryInfo)) {
-          label = TextUtils.concat(label, " ", spanDisplayNumber(primaryInfo.number));
+        if (shouldShowNumber(primaryInfo, true /* isIncoming */)) {
+          label = TextUtils.concat(label, " ", spanDisplayNumber(primaryInfo.number()));
         }
       }
-    } else if (VideoUtils.hasSentVideoUpgradeRequest(state.sessionModificationState)
-        || VideoUtils.hasReceivedVideoUpgradeRequest(state.sessionModificationState)) {
+    } else if (VideoUtils.hasSentVideoUpgradeRequest(state.sessionModificationState())
+        || VideoUtils.hasReceivedVideoUpgradeRequest(state.sessionModificationState())) {
       label = getLabelForVideoRequest(context, state);
-    } else if (state.state == State.PULLING) {
+    } else if (state.state() == DialerCallState.PULLING) {
       label = context.getString(R.string.incall_transferring);
-    } else if (state.state == State.DIALING || state.state == State.CONNECTING) {
+    } else if (state.state() == DialerCallState.DIALING
+        || state.state() == DialerCallState.CONNECTING) {
       // [Wi-Fi icon] Calling via Google Guest
       // Calling...
       label = getLabelForDialing(context, state);
-    } else if (state.state == State.ACTIVE && state.isRemotelyHeld) {
+    } else if (state.state() == DialerCallState.ACTIVE && state.isRemotelyHeld()) {
       label = context.getString(R.string.incall_remotely_held);
-    } else if (state.state == State.ACTIVE && shouldShowNumber(primaryInfo)) {
-      label = spanDisplayNumber(primaryInfo.number);
+    } else if (state.state() == DialerCallState.ACTIVE
+        && shouldShowNumber(primaryInfo, false /* isIncoming */)) {
+      label = spanDisplayNumber(primaryInfo.number());
+    } else if (state.state() == DialerCallState.CALL_PENDING
+        && !TextUtils.isEmpty(state.customLabel())) {
+      label = state.customLabel();
     } else {
       // Video calling...
       // [Wi-Fi icon] Starbucks Wi-Fi
@@ -111,77 +122,138 @@ public class TopRow {
         BidiFormatter.getInstance().unicodeWrap(displayNumber, TextDirectionHeuristics.LTR));
   }
 
-  private static boolean shouldShowNumber(PrimaryInfo primaryInfo) {
-    if (primaryInfo.nameIsNumber) {
+  private static boolean shouldShowNumber(PrimaryInfo primaryInfo, boolean isIncoming) {
+    if (primaryInfo.nameIsNumber()) {
       return false;
     }
-    if (primaryInfo.location == null) {
+    // Don't show number since it's already shown in bottom row of incoming screen if there is no
+    // location info.
+    if (primaryInfo.location() == null && isIncoming) {
       return false;
     }
-    if (TextUtils.isEmpty(primaryInfo.number)) {
+    if (primaryInfo.isLocalContact() && !isIncoming) {
+      return false;
+    }
+    if (TextUtils.isEmpty(primaryInfo.number())) {
       return false;
     }
     return true;
   }
 
   private static CharSequence getLabelForIncoming(Context context, PrimaryCallState state) {
-    if (state.isConference) {
+    if (state.isConference()) {
       if (isAccount(state)) {
-        return context.getString(R.string.incoming_conf_via_template, state.connectionLabel);
-      } else if (state.isVideoCall) {
+        return context.getString(R.string.incoming_conf_via_template, state.connectionLabel());
+      } else if (state.isVideoCall()) {
         return context.getString(R.string.card_title_incoming_video_conf_call);
-      }else {
+      } else {
         return context.getString(R.string.card_title_incoming_conf_call);
       }
-    } else if (state.isVideoCall) {
-      return getLabelForIncomingVideo(context, state.sessionModificationState, state.isWifi);
-    } else if (state.isWifi && !TextUtils.isEmpty(state.connectionLabel)) {
-      return state.connectionLabel;
+    } else if (state.isVideoCall()) {
+      return getLabelForIncomingVideo(context, state.isWifi());
+    } else if (state.isWifi() && !TextUtils.isEmpty(state.connectionLabel())) {
+      return state.connectionLabel();
     } else if (isAccount(state)) {
-      return context.getString(R.string.contact_grid_incoming_via_template, state.connectionLabel);
-    } else if (state.isWorkCall) {
+      return getColoredConnectionLabel(context, state);
+    } else if (state.isWorkCall()) {
       return context.getString(R.string.contact_grid_incoming_work_call);
     } else {
       return context.getString(R.string.contact_grid_incoming_voice_call);
     }
   }
 
-  private static CharSequence getLabelForIncomingVideo(
-      Context context, @SessionModificationState int sessionModificationState, boolean isWifi) {
+  private static Spannable getColoredConnectionLabel(Context context, PrimaryCallState state) {
+    Assert.isNotNull(state.connectionLabel());
+    String label =
+        context.getString(R.string.contact_grid_incoming_via_template, state.connectionLabel());
+    Spannable spannable = new SpannableString(label);
+
+    int start = label.indexOf(state.connectionLabel());
+    int end = start + state.connectionLabel().length();
+    spannable.setSpan(
+        new ForegroundColorSpan(state.primaryColor()),
+        start,
+        end,
+        Spanned.SPAN_INCLUSIVE_EXCLUSIVE);
+    return spannable;
+  }
+
+  private static CharSequence getLabelForIncomingVideo(Context context, boolean isWifi) {
       return isWifi ? QtiCallUtils.getLabelForIncomingWifiVideoCall(context) :
           QtiCallUtils.getLabelForIncomingVideoCall(context);
   }
 
   private static CharSequence getLabelForDialing(Context context, PrimaryCallState state) {
-    if (!TextUtils.isEmpty(state.connectionLabel) && !state.isWifi) {
-      return context.getString(R.string.incall_calling_via_template, state.connectionLabel);
+    if (!TextUtils.isEmpty(state.connectionLabel()) && !state.isWifi()) {
+      CharSequence label = getCallingViaLabel(context, state);
+
+      if (state.isAssistedDialed() && state.assistedDialingExtras() != null) {
+        LogUtil.i("TopRow.getLabelForDialing", "using assisted dialing with via label.");
+        String countryCode =
+            String.valueOf(state.assistedDialingExtras().transformedNumberCountryCallingCode());
+        label =
+            TextUtils.concat(
+                label,
+                " • ",
+                context.getString(
+                    R.string.incall_connecting_assited_dialed_component,
+                    countryCode,
+                    state.assistedDialingExtras().userHomeCountryCode()));
+      }
+      return label;
     } else {
-      if (state.isVideoCall) {
-        if (state.isWifi) {
+      if (state.isVideoCall()) {
+        if (state.isWifi()) {
           return context.getString(R.string.incall_wifi_video_call_requesting);
         } else {
           return context.getString(R.string.incall_video_call_requesting);
         }
       }
+
+      if (state.isAssistedDialed() && state.assistedDialingExtras() != null) {
+        LogUtil.i("TopRow.getLabelForDialing", "using assisted dialing label.");
+        String countryCode =
+            String.valueOf(state.assistedDialingExtras().transformedNumberCountryCallingCode());
+        return context.getString(
+            R.string.incall_connecting_assited_dialed,
+            countryCode,
+            state.assistedDialingExtras().userHomeCountryCode());
+      }
       return context.getString(R.string.incall_connecting);
     }
   }
 
+  private static CharSequence getCallingViaLabel(Context context, PrimaryCallState state) {
+    if (state.simSuggestionReason() != null) {
+      switch (state.simSuggestionReason()) {
+        case FREQUENT:
+          return context.getString(
+              R.string.incall_calling_on_recent_choice_template, state.connectionLabel());
+        case INTRA_CARRIER:
+          return context.getString(
+              R.string.incall_calling_on_same_carrier_template, state.connectionLabel());
+        default:
+          break;
+      }
+    }
+    return context.getString(R.string.incall_calling_via_template, state.connectionLabel());
+  }
+
   private static CharSequence getConnectionLabel(PrimaryCallState state) {
-    if (!TextUtils.isEmpty(state.connectionLabel)
-        && (isAccount(state) || state.isWifi || state.isConference)) {
+    if (!TextUtils.isEmpty(state.connectionLabel())
+        && (isAccount(state) || state.isWifi() || state.isConference())) {
       // We normally don't show a "call state label" at all when active
       // (but we can use the call state label to display the provider name).
-      return state.connectionLabel;
+      return state.connectionLabel();
     } else {
       return null;
     }
   }
 
   private static CharSequence getLabelForVideoRequest(Context context, PrimaryCallState state) {
-    switch (state.sessionModificationState) {
+    switch (state.sessionModificationState()) {
       case SessionModificationState.WAITING_FOR_UPGRADE_TO_VIDEO_RESPONSE:
-        return context.getString(R.string.incall_video_call_requesting);
+        return context.getString(R.string.incall_video_call_upgrade_request);
       case SessionModificationState.REQUEST_FAILED:
       case SessionModificationState.UPGRADE_TO_VIDEO_REQUEST_FAILED:
         return context.getString(R.string.incall_video_call_request_failed);
@@ -190,7 +262,7 @@ public class TopRow {
       case SessionModificationState.UPGRADE_TO_VIDEO_REQUEST_TIMED_OUT:
         return context.getString(R.string.incall_video_call_request_timed_out);
       case SessionModificationState.RECEIVED_UPGRADE_TO_VIDEO_REQUEST:
-        return getLabelForIncomingVideo(context, state.sessionModificationState, state.isWifi);
+        return getLabelForIncomingVideo(context, state.isWifi());
       case SessionModificationState.NO_REQUEST:
       default:
         Assert.fail();
@@ -199,6 +271,6 @@ public class TopRow {
   }
 
   private static boolean isAccount(PrimaryCallState state) {
-    return !TextUtils.isEmpty(state.connectionLabel) && TextUtils.isEmpty(state.gatewayNumber);
+    return !TextUtils.isEmpty(state.connectionLabel()) && TextUtils.isEmpty(state.gatewayNumber());
   }
 }

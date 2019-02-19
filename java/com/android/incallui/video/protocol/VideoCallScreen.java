@@ -41,4 +41,6 @@ public interface VideoCallScreen {
   void onRequestReadStoragePermission();
 
   String getCallId();
+
+  void onHandoverFromWiFiToLte();
 }

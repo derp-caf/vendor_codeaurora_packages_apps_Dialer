@@ -16,10 +16,12 @@
 
 package com.android.dialer.location;
 
+import android.Manifest.permission;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.location.Address;
 import android.location.Geocoder;
 import android.location.Location;
@@ -35,7 +37,6 @@ import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
 import com.android.dialer.common.concurrent.DialerExecutor.Worker;
 import com.android.dialer.common.concurrent.DialerExecutorComponent;
-import com.android.dialer.util.PermissionsUtil;
 import java.util.List;
 import java.util.Locale;
 
@@ -72,7 +73,7 @@ public class CountryDetector {
   // exceedingly rare event that the device does not have a default locale set for some reason.
   private static final String DEFAULT_COUNTRY_ISO = "US";
 
-  @VisibleForTesting static CountryDetector sInstance;
+  @VisibleForTesting public static CountryDetector instance;
 
   private final TelephonyManager telephonyManager;
   private final LocaleProvider localeProvider;
@@ -80,7 +81,7 @@ public class CountryDetector {
   private final Context appContext;
 
   @VisibleForTesting
-  CountryDetector(
+  public CountryDetector(
       Context appContext,
       TelephonyManager telephonyManager,
       LocationManager locationManager,
@@ -98,8 +99,9 @@ public class CountryDetector {
     }
   }
 
+  @SuppressWarnings("missingPermission")
   private static void registerForLocationUpdates(Context context, LocationManager locationManager) {
-    if (!PermissionsUtil.hasLocationPermissions(context)) {
+    if (!hasLocationPermissions(context)) {
       LogUtil.w(
           "CountryDetector.registerForLocationUpdates",
           "no location permissions, not registering for location updates");
@@ -121,9 +123,9 @@ public class CountryDetector {
 
   /** @return the single instance of the {@link CountryDetector} */
   public static synchronized CountryDetector getInstance(Context context) {
-    if (sInstance == null) {
+    if (instance == null) {
       Context appContext = context.getApplicationContext();
-      sInstance =
+      instance =
           new CountryDetector(
               appContext,
               (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE),
@@ -131,7 +133,7 @@ public class CountryDetector {
               Locale::getDefault,
               new Geocoder(appContext));
     }
-    return sInstance;
+    return instance;
   }
 
   public String getCurrentCountryIso() {
@@ -163,7 +165,7 @@ public class CountryDetector {
   @Nullable
   private String getLocationBasedCountryIso() {
     if (!Geocoder.isPresent()
-        || !PermissionsUtil.hasLocationPermissions(appContext)
+        || !hasLocationPermissions(appContext)
         || !UserManagerCompat.isUserUnlocked(appContext)) {
       return null;
     }
@@ -192,7 +194,7 @@ public class CountryDetector {
   }
 
   /** Interface for accessing the current locale. */
-  interface LocaleProvider {
+  public interface LocaleProvider {
     Locale getLocale();
   }
 
@@ -264,5 +266,10 @@ public class CountryDetector {
       }
       return null;
     }
+  }
+
+  private static boolean hasLocationPermissions(Context context) {
+    return context.checkSelfPermission(permission.ACCESS_FINE_LOCATION)
+        == PackageManager.PERMISSION_GRANTED;
   }
 }

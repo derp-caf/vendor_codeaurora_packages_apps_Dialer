@@ -59,7 +59,7 @@ public class AnswerVideoCallScreen implements VideoCallScreen {
   @Override
   public void onVideoScreenStart() {
     LogUtil.i("AnswerVideoCallScreen.onStart", null);
-    delegate.onVideoCallScreenUiReady(this);
+    delegate.onVideoCallScreenUiReady();
     delegate.getLocalVideoSurfaceTexture().attachToTextureView(textureView);
   }
 
@@ -112,6 +112,9 @@ public class AnswerVideoCallScreen implements VideoCallScreen {
   public String getCallId() {
     return callId;
   }
+
+  @Override
+  public void onHandoverFromWiFiToLte() {}
 
   private void updatePreviewVideoScaling() {
     if (textureView.getWidth() == 0 || textureView.getHeight() == 0) {

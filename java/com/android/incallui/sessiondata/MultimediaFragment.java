@@ -34,6 +34,7 @@ import android.widget.TextView;
 import com.android.dialer.common.FragmentUtils;
 import com.android.dialer.common.LogUtil;
 import com.android.dialer.multimedia.MultimediaData;
+import com.android.dialer.theme.base.ThemeComponent;
 import com.android.incallui.maps.MapsComponent;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.DataSource;
@@ -106,6 +107,10 @@ public class MultimediaFragment extends Fragment implements AvatarPresenter {
   @Override
   public View onCreateView(
       LayoutInflater layoutInflater, @Nullable ViewGroup viewGroup, @Nullable Bundle bundle) {
+    layoutInflater =
+        layoutInflater.cloneInContext(
+            ThemeComponent.get(getContext()).theme().getThemedContext(getContext()));
+
     if (isSpam) {
       LogUtil.i("MultimediaFragment.onCreateView", "show spam layout");
       return layoutInflater.inflate(R.layout.fragment_spam, viewGroup, false);
@@ -182,7 +187,7 @@ public class MultimediaFragment extends Fragment implements AvatarPresenter {
                     boolean isFirstResource) {
                   view.findViewById(R.id.loading_spinner).setVisibility(View.GONE);
                   LogUtil.e("MultimediaFragment.onLoadFailed", null, e);
-                  // TODO(b/34720074) handle error cases nicely
+                  // TODO(a bug) handle error cases nicely
                   return false; // Let Glide handle the rest
                 }
 

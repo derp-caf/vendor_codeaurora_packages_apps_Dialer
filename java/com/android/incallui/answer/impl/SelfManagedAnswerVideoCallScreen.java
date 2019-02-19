@@ -114,6 +114,9 @@ public class SelfManagedAnswerVideoCallScreen extends StateCallback implements V
     return callId;
   }
 
+  @Override
+  public void onHandoverFromWiFiToLte() {}
+
   /**
    * Opens the first front facing camera on the device into a {@link SurfaceView} while preserving
    * aspect ratio.

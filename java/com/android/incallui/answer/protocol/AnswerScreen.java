@@ -24,11 +24,15 @@ public interface AnswerScreen {
 
   String getCallId();
 
+  boolean isRttCall();
+
   boolean isVideoCall();
 
   boolean isVideoUpgradeRequest();
 
   boolean allowAnswerAndRelease();
+
+  boolean allowSpeakEasy();
 
   boolean isActionTimeout();
 

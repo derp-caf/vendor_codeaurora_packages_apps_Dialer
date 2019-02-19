@@ -21,16 +21,20 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.provider.ContactsContract;
+import android.support.annotation.Nullable;
 import android.telecom.PhoneAccountHandle;
+import android.telephony.TelephonyManager;
 import com.android.contacts.common.model.Contact;
 import com.android.contacts.common.model.ContactLoader;
-import com.android.dialer.calldetails.CallDetailsActivity;
 import com.android.dialer.calldetails.CallDetailsEntries;
+import com.android.dialer.calldetails.OldCallDetailsActivity;
 import com.android.dialer.callintent.CallInitiationType;
 import com.android.dialer.callintent.CallIntentBuilder;
 import com.android.dialer.dialercontact.DialerContact;
-import com.android.dialer.lightbringer.LightbringerComponent;
-import com.android.dialer.util.CallUtil;
+import com.android.dialer.duo.DuoComponent;
+import com.android.dialer.logging.DialerImpression;
+import com.android.dialer.logging.Logger;
+import com.android.dialer.precall.PreCall;
 import com.android.dialer.util.IntentUtil;
 import java.util.ArrayList;
 
@@ -52,9 +56,23 @@ public abstract class IntentProvider {
     return new IntentProvider() {
       @Override
       public Intent getIntent(Context context) {
-        return new CallIntentBuilder(number, CallInitiationType.Type.CALL_LOG)
-            .setPhoneAccountHandle(accountHandle)
-            .build();
+        return PreCall.getIntent(
+            context,
+            new CallIntentBuilder(number, CallInitiationType.Type.CALL_LOG)
+                .setPhoneAccountHandle(accountHandle));
+      }
+    };
+  }
+
+  public static IntentProvider getAssistedDialIntentProvider(
+      final String number, final Context context, final TelephonyManager telephonyManager) {
+    return new IntentProvider() {
+      @Override
+      public Intent getIntent(Context context) {
+        return PreCall.getIntent(
+            context,
+            new CallIntentBuilder(number, CallInitiationType.Type.CALL_LOG)
+                .setAllowAssistedDial(true));
       }
     };
   }
@@ -68,29 +86,89 @@ public abstract class IntentProvider {
     return new IntentProvider() {
       @Override
       public Intent getIntent(Context context) {
-        return new CallIntentBuilder(number, CallInitiationType.Type.CALL_LOG)
-            .setPhoneAccountHandle(accountHandle)
-            .setIsVideoCall(true)
-            .build();
+        return PreCall.getIntent(
+            context,
+            new CallIntentBuilder(number, CallInitiationType.Type.CALL_LOG)
+                .setPhoneAccountHandle(accountHandle)
+                .setIsVideoCall(true));
       }
     };
   }
 
-  public static IntentProvider getLightbringerIntentProvider(String number) {
+  public static IntentProvider getDuoVideoIntentProvider(String number, boolean isNonContact) {
     return new IntentProvider() {
       @Override
       public Intent getIntent(Context context) {
-        return LightbringerComponent.get(context).getLightbringer().getIntent(context, number);
+        return PreCall.getIntent(
+            context,
+            new CallIntentBuilder(number, CallInitiationType.Type.CALL_LOG)
+                .setIsDuoCall(true)
+                .setIsVideoCall(true));
+      }
+
+      @Override
+      public void logInteraction(Context context) {
+        Logger.get(context)
+            .logImpression(DialerImpression.Type.LIGHTBRINGER_VIDEO_REQUESTED_FROM_CALL_LOG);
+        if (isNonContact) {
+          Logger.get(context)
+              .logImpression(
+                  DialerImpression.Type.LIGHTBRINGER_NON_CONTACT_VIDEO_REQUESTED_FROM_CALL_LOG);
+        }
       }
     };
   }
 
-  public static IntentProvider getReturnVoicemailCallIntentProvider() {
+  public static IntentProvider getInstallDuoIntentProvider() {
     return new IntentProvider() {
       @Override
       public Intent getIntent(Context context) {
-        return new CallIntentBuilder(CallUtil.getVoicemailUri(), CallInitiationType.Type.CALL_LOG)
-            .build();
+        return DuoComponent.get(context).getDuo().getInstallDuoIntent().orNull();
+      }
+
+      @Override
+      public void logInteraction(Context context) {
+        Logger.get(context).logImpression(DialerImpression.Type.DUO_CALL_LOG_SET_UP_INSTALL);
+      }
+    };
+  }
+
+  public static IntentProvider getSetUpDuoIntentProvider() {
+    return new IntentProvider() {
+      @Override
+      public Intent getIntent(Context context) {
+        return DuoComponent.get(context).getDuo().getActivateIntent().orNull();
+      }
+
+      @Override
+      public void logInteraction(Context context) {
+        Logger.get(context).logImpression(DialerImpression.Type.DUO_CALL_LOG_SET_UP_ACTIVATE);
+      }
+    };
+  }
+
+  public static IntentProvider getDuoInviteIntentProvider(String number) {
+    return new IntentProvider() {
+      @Override
+      public Intent getIntent(Context context) {
+        return DuoComponent.get(context).getDuo().getInviteIntent(number).orNull();
+      }
+
+      @Override
+      public void logInteraction(Context context) {
+        Logger.get(context).logImpression(DialerImpression.Type.DUO_CALL_LOG_INVITE);
+      }
+    };
+  }
+
+  public static IntentProvider getReturnVoicemailCallIntentProvider(
+      @Nullable PhoneAccountHandle phoneAccountHandle) {
+    return new IntentProvider() {
+      @Override
+      public Intent getIntent(Context context) {
+        return PreCall.getIntent(
+            context,
+            CallIntentBuilder.forVoicemail(phoneAccountHandle, CallInitiationType.Type.CALL_LOG));
       }
     };
   }
@@ -109,15 +187,20 @@ public abstract class IntentProvider {
    *
    * @param callDetailsEntries The call details of the other calls grouped together with the call.
    * @param contact The contact with which this call details intent pertains to.
+   * @param canReportCallerId Whether reporting a caller ID is supported.
+   * @param canSupportAssistedDialing Whether assisted dialing is supported.
    * @return The call details intent provider.
    */
   public static IntentProvider getCallDetailIntentProvider(
-      CallDetailsEntries callDetailsEntries, DialerContact contact, boolean canReportCallerId) {
+      CallDetailsEntries callDetailsEntries,
+      DialerContact contact,
+      boolean canReportCallerId,
+      boolean canSupportAssistedDialing) {
     return new IntentProvider() {
       @Override
       public Intent getIntent(Context context) {
-        return CallDetailsActivity.newInstance(
-            context, callDetailsEntries, contact, canReportCallerId);
+        return OldCallDetailsActivity.newInstance(
+            context, callDetailsEntries, contact, canReportCallerId, canSupportAssistedDialing);
       }
     };
   }
@@ -193,4 +276,6 @@ public abstract class IntentProvider {
   }
 
   public abstract Intent getIntent(Context context);
+
+  public void logInteraction(Context context) {}
 }

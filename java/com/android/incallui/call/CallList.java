@@ -23,27 +23,32 @@ import android.os.Trace;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.annotation.VisibleForTesting;
-import android.support.v4.os.BuildCompat;
 import android.telecom.Call;
 import android.telecom.DisconnectCause;
 import android.telecom.PhoneAccount;
 import android.util.ArrayMap;
 import com.android.dialer.blocking.FilteredNumberAsyncQueryHandler;
-import com.android.dialer.blocking.FilteredNumbersUtil;
 import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
+import com.android.dialer.common.concurrent.DialerExecutorComponent;
 import com.android.dialer.enrichedcall.EnrichedCallComponent;
 import com.android.dialer.enrichedcall.EnrichedCallManager;
-import com.android.dialer.location.GeoUtil;
 import com.android.dialer.logging.DialerImpression;
 import com.android.dialer.logging.Logger;
+import com.android.dialer.metrics.Metrics;
+import com.android.dialer.metrics.MetricsComponent;
+import com.android.dialer.promotion.impl.RttPromotion;
 import com.android.dialer.shortcuts.ShortcutUsageReporter;
-import com.android.dialer.spam.Spam;
-import com.android.dialer.spam.SpamBindings;
-import com.android.incallui.call.DialerCall.State;
+import com.android.dialer.spam.SpamComponent;
+import com.android.dialer.spam.status.SpamStatus;
+import com.android.dialer.telecom.TelecomCallUtil;
+import com.android.incallui.call.state.DialerCallState;
 import com.android.incallui.latencyreport.LatencyReport;
-import com.android.incallui.util.TelecomCallUtil;
 import com.android.incallui.videotech.utils.SessionModificationState;
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.Map;
@@ -64,22 +69,24 @@ public class CallList implements DialerCallDelegate {
 
   private static final int EVENT_DISCONNECTED_TIMEOUT = 1;
 
-  private static CallList sInstance = new CallList();
+  private static CallList instance = new CallList();
 
-  private final Map<String, DialerCall> mCallById = new ArrayMap<>();
-  private final Map<android.telecom.Call, DialerCall> mCallByTelecomCall = new ArrayMap<>();
+  private final Map<String, DialerCall> callById = new ArrayMap<>();
+  private final Map<android.telecom.Call, DialerCall> callByTelecomCall = new ArrayMap<>();
 
   /**
    * ConcurrentHashMap constructor params: 8 is initial table size, 0.9f is load factor before
    * resizing, 1 means we only expect a single thread to access the map so make only a single shard
    */
-  private final Set<Listener> mListeners =
+  private final Set<Listener> listeners =
       Collections.newSetFromMap(new ConcurrentHashMap<Listener, Boolean>(8, 0.9f, 1));
 
-  private final Set<DialerCall> mPendingDisconnectCalls =
+  private final Set<DialerCall> pendingDisconnectCalls =
       Collections.newSetFromMap(new ConcurrentHashMap<DialerCall, Boolean>(8, 0.9f, 1));
+
+  private UiListener uiListeners;
   /** Handles the timeout for destroying disconnected calls. */
-  private final Handler mHandler =
+  private final Handler handler =
       new Handler() {
         @Override
         public void handleMessage(Message msg) {
@@ -104,72 +111,84 @@ public class CallList implements DialerCallDelegate {
 
   @VisibleForTesting
   public static void setCallListInstance(CallList callList) {
-    sInstance = callList;
+    instance = callList;
   }
 
   /** Static singleton accessor method. */
   public static CallList getInstance() {
-    return sInstance;
+    return instance;
   }
 
   public void onCallAdded(
       final Context context, final android.telecom.Call telecomCall, LatencyReport latencyReport) {
-    Trace.beginSection("onCallAdded");
+    Trace.beginSection("CallList.onCallAdded");
+    if (telecomCall.getState() == Call.STATE_CONNECTING) {
+      MetricsComponent.get(context)
+          .metrics()
+          .startTimer(Metrics.ON_CALL_ADDED_TO_ON_INCALL_UI_SHOWN_OUTGOING);
+    } else if (telecomCall.getState() == Call.STATE_RINGING) {
+      MetricsComponent.get(context)
+          .metrics()
+          .startTimer(Metrics.ON_CALL_ADDED_TO_ON_INCALL_UI_SHOWN_INCOMING);
+    }
+    if (uiListeners != null) {
+      uiListeners.onCallAdded();
+    }
     final DialerCall call =
         new DialerCall(context, this, telecomCall, latencyReport, true /* registerCallback */);
-    logSecondIncomingCall(context, call);
+    if (getFirstCall() != null) {
+      logSecondIncomingCall(context, getFirstCall(), call);
+    }
 
     EnrichedCallManager manager = EnrichedCallComponent.get(context).getEnrichedCallManager();
     manager.registerCapabilitiesListener(call);
     manager.registerStateChangedListener(call);
 
-    final DialerCallListenerImpl dialerCallListener = new DialerCallListenerImpl(call);
-    call.addListener(dialerCallListener);
+    Trace.beginSection("checkSpam");
+    call.addListener(new DialerCallListenerImpl(call));
     LogUtil.d("CallList.onCallAdded", "callState=" + call.getState());
-    if (Spam.get(context).isSpamEnabled()) {
+    if (SpamComponent.get(context).spamSettings().isSpamEnabled()) {
       String number = TelecomCallUtil.getNumber(telecomCall);
-      Spam.get(context)
-          .checkSpamStatus(
-              number,
-              null,
-              new SpamBindings.Listener() {
-                @Override
-                public void onComplete(boolean isSpam) {
-                  boolean isIncomingCall =
-                      call.getState() == DialerCall.State.INCOMING
-                          || call.getState() == DialerCall.State.CALL_WAITING;
-                  if (isSpam) {
-                    if (!isIncomingCall) {
-                      LogUtil.i(
-                          "CallList.onCallAdded",
-                          "marking spam call as not spam because it's not an incoming call");
-                      isSpam = false;
-                    } else if (isPotentialEmergencyCallback(context, call)) {
-                      LogUtil.i(
-                          "CallList.onCallAdded",
-                          "marking spam call as not spam because an emergency call was made on this"
-                              + " device recently");
-                      isSpam = false;
-                    }
-                  }
+      ListenableFuture<SpamStatus> futureSpamStatus =
+          SpamComponent.get(context).spam().checkSpamStatus(number, call.getCountryIso());
 
-                  if (isIncomingCall) {
-                    Logger.get(context)
-                        .logCallImpression(
-                            isSpam
-                                ? DialerImpression.Type.INCOMING_SPAM_CALL
-                                : DialerImpression.Type.INCOMING_NON_SPAM_CALL,
-                            call.getUniqueCallId(),
-                            call.getTimeAddedMs());
-                  }
-                  call.setSpam(isSpam);
-                  dialerCallListener.onDialerCallUpdate();
-                }
-              });
+      Futures.addCallback(
+          futureSpamStatus,
+          new FutureCallback<SpamStatus>() {
+            @Override
+            public void onSuccess(@Nullable SpamStatus result) {
+              boolean isIncomingCall =
+                  call.getState() == DialerCallState.INCOMING
+                      || call.getState() == DialerCallState.CALL_WAITING;
+              boolean isSpam = result.isSpam();
+              call.setSpamStatus(result);
 
-      updateUserMarkedSpamStatus(call, context, number, dialerCallListener);
+              if (isIncomingCall) {
+                Logger.get(context)
+                    .logCallImpression(
+                        isSpam
+                            ? DialerImpression.Type.INCOMING_SPAM_CALL
+                            : DialerImpression.Type.INCOMING_NON_SPAM_CALL,
+                        call.getUniqueCallId(),
+                        call.getTimeAddedMs());
+              }
+              onUpdateCall(call);
+              notifyGenericListeners();
+            }
+
+            @Override
+            public void onFailure(Throwable t) {
+              LogUtil.e("CallList.onFailure", "unable to query spam status", t);
+            }
+          },
+          DialerExecutorComponent.get(context).uiExecutor());
+
+      Trace.beginSection("updateUserMarkedSpamStatus");
+      Trace.endSection();
     }
+    Trace.endSection();
 
+    Trace.beginSection("checkBlock");
     FilteredNumberAsyncQueryHandler filteredNumberAsyncQueryHandler =
         new FilteredNumberAsyncQueryHandler(context);
 
@@ -179,21 +198,40 @@ public class CallList implements DialerCallDelegate {
           public void onCheckComplete(Integer id) {
             if (id != null && id != FilteredNumberAsyncQueryHandler.INVALID_ID) {
               call.setBlockedStatus(true);
-              dialerCallListener.onDialerCallUpdate();
+              // No need to update UI since it's only used for logging.
             }
           }
         },
         call.getNumber(),
-        GeoUtil.getCurrentCountryIso(context));
+        call.getCountryIso());
+    Trace.endSection();
 
-    if (call.getState() == DialerCall.State.INCOMING
-        || call.getState() == DialerCall.State.CALL_WAITING) {
+    if (call.getState() == DialerCallState.INCOMING
+        || call.getState() == DialerCallState.CALL_WAITING) {
+      if (call.isActiveRttCall()) {
+        if (!call.isPhoneAccountRttCapable()) {
+          RttPromotion.setEnabled(context);
+        }
+        Logger.get(context)
+            .logCallImpression(
+                DialerImpression.Type.INCOMING_RTT_CALL,
+                call.getUniqueCallId(),
+                call.getTimeAddedMs());
+      }
       onIncoming(call);
     } else {
-      dialerCallListener.onDialerCallUpdate();
+      if (call.isActiveRttCall()) {
+        Logger.get(context)
+            .logCallImpression(
+                DialerImpression.Type.OUTGOING_RTT_CALL,
+                call.getUniqueCallId(),
+                call.getTimeAddedMs());
+      }
+      onUpdateCall(call);
+      notifyGenericListeners();
     }
 
-    if (call.getState() != State.INCOMING) {
+    if (call.getState() != DialerCallState.INCOMING) {
       // Only report outgoing calls
       ShortcutUsageReporter.onOutgoingCallAdded(context, call.getNumber());
     }
@@ -201,87 +239,36 @@ public class CallList implements DialerCallDelegate {
     Trace.endSection();
   }
 
-  private void logSecondIncomingCall(@NonNull Context context, @NonNull DialerCall incomingCall) {
-    DialerCall firstCall = getFirstCall();
-    if (firstCall != null) {
-      DialerImpression.Type impression;
-      if (firstCall.isVideoCall()) {
-        if (incomingCall.isVideoCall()) {
-          impression = DialerImpression.Type.VIDEO_CALL_WITH_INCOMING_VIDEO_CALL;
-        } else {
-          impression = DialerImpression.Type.VIDEO_CALL_WITH_INCOMING_VOICE_CALL;
-        }
+  private void logSecondIncomingCall(
+      @NonNull Context context, @NonNull DialerCall firstCall, @NonNull DialerCall incomingCall) {
+    DialerImpression.Type impression;
+    if (firstCall.isVideoCall()) {
+      if (incomingCall.isVideoCall()) {
+        impression = DialerImpression.Type.VIDEO_CALL_WITH_INCOMING_VIDEO_CALL;
       } else {
-        if (incomingCall.isVideoCall()) {
-          impression = DialerImpression.Type.VOICE_CALL_WITH_INCOMING_VIDEO_CALL;
-        } else {
-          impression = DialerImpression.Type.VOICE_CALL_WITH_INCOMING_VOICE_CALL;
-        }
+        impression = DialerImpression.Type.VIDEO_CALL_WITH_INCOMING_VOICE_CALL;
       }
-      Assert.checkArgument(impression != null);
-      Logger.get(context)
-          .logCallImpression(
-              impression, incomingCall.getUniqueCallId(), incomingCall.getTimeAddedMs());
-    }
-  }
-
-  private static boolean isPotentialEmergencyCallback(Context context, DialerCall call) {
-    if (BuildCompat.isAtLeastO()) {
-      return call.isPotentialEmergencyCallback();
     } else {
-      long timestampMillis = FilteredNumbersUtil.getLastEmergencyCallTimeMillis(context);
-      return call.isInEmergencyCallbackWindow(timestampMillis);
+      if (incomingCall.isVideoCall()) {
+        impression = DialerImpression.Type.VOICE_CALL_WITH_INCOMING_VIDEO_CALL;
+      } else {
+        impression = DialerImpression.Type.VOICE_CALL_WITH_INCOMING_VOICE_CALL;
+      }
     }
+    Assert.checkArgument(impression != null);
+    Logger.get(context)
+        .logCallImpression(
+            impression, incomingCall.getUniqueCallId(), incomingCall.getTimeAddedMs());
   }
 
   @Override
   public DialerCall getDialerCallFromTelecomCall(Call telecomCall) {
-    return mCallByTelecomCall.get(telecomCall);
-  }
-
-  public void updateUserMarkedSpamStatus(
-      final DialerCall call,
-      final Context context,
-      String number,
-      final DialerCallListenerImpl dialerCallListener) {
-
-    Spam.get(context)
-        .checkUserMarkedNonSpamStatus(
-            number,
-            null,
-            new SpamBindings.Listener() {
-              @Override
-              public void onComplete(boolean isInUserWhiteList) {
-                call.setIsInUserWhiteList(isInUserWhiteList);
-              }
-            });
-
-    Spam.get(context)
-        .checkGlobalSpamListStatus(
-            number,
-            null,
-            new SpamBindings.Listener() {
-              @Override
-              public void onComplete(boolean isInGlobalSpamList) {
-                call.setIsInGlobalSpamList(isInGlobalSpamList);
-              }
-            });
-
-    Spam.get(context)
-        .checkUserMarkedSpamStatus(
-            number,
-            null,
-            new SpamBindings.Listener() {
-              @Override
-              public void onComplete(boolean isInUserSpamList) {
-                call.setIsInUserSpamList(isInUserSpamList);
-              }
-            });
+    return callByTelecomCall.get(telecomCall);
   }
 
   public void onCallRemoved(Context context, android.telecom.Call telecomCall) {
-    if (mCallByTelecomCall.containsKey(telecomCall)) {
-      DialerCall call = mCallByTelecomCall.get(telecomCall);
+    if (callByTelecomCall.containsKey(telecomCall)) {
+      DialerCall call = callByTelecomCall.get(telecomCall);
       Assert.checkArgument(!call.isExternalCall());
 
       EnrichedCallManager manager = EnrichedCallComponent.get(context).getEnrichedCallManager();
@@ -289,7 +276,7 @@ public class CallList implements DialerCallDelegate {
       manager.unregisterStateChangedListener(call);
 
       // Don't log an already logged call. logCall() might be called multiple times
-      // for the same call due to b/24109437.
+      // for the same call due to a bug.
       if (call.getLogState() != null && !call.getLogState().isLogged) {
         getLegacyBindings(context).logCall(call);
         call.getLogState().isLogged = true;
@@ -331,11 +318,11 @@ public class CallList implements DialerCallDelegate {
    */
   public void onInternalCallMadeExternal(Context context, android.telecom.Call telecomCall) {
 
-    if (mCallByTelecomCall.containsKey(telecomCall)) {
-      DialerCall call = mCallByTelecomCall.get(telecomCall);
+    if (callByTelecomCall.containsKey(telecomCall)) {
+      DialerCall call = callByTelecomCall.get(telecomCall);
 
       // Don't log an already logged call. logCall() might be called multiple times
-      // for the same call due to b/24109437.
+      // for the same call due to a bug.
       if (call.getLogState() != null && !call.getLogState().isLogged) {
         getLegacyBindings(context).logCall(call);
         call.getLogState().isLogged = true;
@@ -346,34 +333,40 @@ public class CallList implements DialerCallDelegate {
       // However, the call won't be disconnected in this case.  Also, logic in updateCallInMap
       // would just re-add the call anyways.
       call.unregisterCallback();
-      mCallById.remove(call.getId());
-      mCallByTelecomCall.remove(telecomCall);
+      callById.remove(call.getId());
+      callByTelecomCall.remove(telecomCall);
     }
   }
 
   /** Called when a single call has changed. */
   private void onIncoming(DialerCall call) {
+    Trace.beginSection("CallList.onIncoming");
     if (updateCallInMap(call)) {
       LogUtil.i("CallList.onIncoming", String.valueOf(call));
     }
 
-    for (Listener listener : mListeners) {
+    for (Listener listener : listeners) {
       listener.onIncomingCall(call);
     }
+    Trace.endSection();
   }
 
   public void addListener(@NonNull Listener listener) {
     Objects.requireNonNull(listener);
 
-    mListeners.add(listener);
+    listeners.add(listener);
 
     // Let the listener know about the active calls immediately.
     listener.onCallListChange(this);
   }
 
+  public void setUiListener(UiListener uiListener) {
+    uiListeners = uiListener;
+  }
+
   public void removeListener(@Nullable Listener listener) {
     if (listener != null) {
-      mListeners.remove(listener);
+      listeners.remove(listener);
     }
   }
 
@@ -400,46 +393,46 @@ public class CallList implements DialerCallDelegate {
 
   /** A call that is waiting for {@link PhoneAccount} selection */
   public DialerCall getWaitingForAccountCall() {
-    return getFirstCallWithState(DialerCall.State.SELECT_PHONE_ACCOUNT);
+    return getFirstCallWithState(DialerCallState.SELECT_PHONE_ACCOUNT);
   }
 
   public DialerCall getPendingOutgoingCall() {
-    return getFirstCallWithState(DialerCall.State.CONNECTING);
+    return getFirstCallWithState(DialerCallState.CONNECTING);
   }
 
   public DialerCall getOutgoingCall() {
-    DialerCall call = getFirstCallWithState(DialerCall.State.DIALING);
+    DialerCall call = getFirstCallWithState(DialerCallState.DIALING);
     if (call == null) {
-      call = getFirstCallWithState(DialerCall.State.REDIALING);
+      call = getFirstCallWithState(DialerCallState.REDIALING);
     }
     if (call == null) {
-      call = getFirstCallWithState(DialerCall.State.PULLING);
+      call = getFirstCallWithState(DialerCallState.PULLING);
     }
     return call;
   }
 
   public DialerCall getActiveCall() {
-    return getFirstCallWithState(DialerCall.State.ACTIVE);
+    return getFirstCallWithState(DialerCallState.ACTIVE);
   }
 
   public DialerCall getSecondActiveCall() {
-    return getCallWithState(DialerCall.State.ACTIVE, 1);
+    return getCallWithState(DialerCallState.ACTIVE, 1);
   }
 
   public DialerCall getBackgroundCall() {
-    return getFirstCallWithState(DialerCall.State.ONHOLD);
+    return getFirstCallWithState(DialerCallState.ONHOLD);
   }
 
   public DialerCall getDisconnectedCall() {
-    return getFirstCallWithState(DialerCall.State.DISCONNECTED);
+    return getFirstCallWithState(DialerCallState.DISCONNECTED);
   }
 
   public DialerCall getDisconnectingCall() {
-    return getFirstCallWithState(DialerCall.State.DISCONNECTING);
+    return getFirstCallWithState(DialerCallState.DISCONNECTING);
   }
 
   public DialerCall getSecondBackgroundCall() {
-    return getCallWithState(DialerCall.State.ONHOLD, 1);
+    return getCallWithState(DialerCallState.ONHOLD, 1);
   }
 
   public DialerCall getActiveOrBackgroundCall() {
@@ -451,9 +444,9 @@ public class CallList implements DialerCallDelegate {
   }
 
   public DialerCall getIncomingCall() {
-    DialerCall call = getFirstCallWithState(DialerCall.State.INCOMING);
+    DialerCall call = getFirstCallWithState(DialerCallState.INCOMING);
     if (call == null) {
-      call = getFirstCallWithState(DialerCall.State.CALL_WAITING);
+      call = getFirstCallWithState(DialerCallState.CALL_WAITING);
     }
 
     return call;
@@ -468,7 +461,7 @@ public class CallList implements DialerCallDelegate {
       result = getOutgoingCall();
     }
     if (result == null) {
-      result = getFirstCallWithState(DialerCall.State.ACTIVE);
+      result = getFirstCallWithState(DialerCallState.ACTIVE);
     }
     if (result == null) {
       result = getDisconnectingCall();
@@ -484,13 +477,22 @@ public class CallList implements DialerCallDelegate {
     return call != null && call != getDisconnectingCall() && call != getDisconnectedCall();
   }
 
+  boolean hasActiveRttCall() {
+    for (DialerCall call : getAllCalls()) {
+      if (call.isActiveRttCall()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /**
    * Returns the first call found in the call map with the upgrade to video modification state.
    *
    * @return The first call with the upgrade to video state.
    */
   public DialerCall getVideoUpgradeRequestCall() {
-    for (DialerCall call : mCallById.values()) {
+    for (DialerCall call : callById.values()) {
       if (call.getVideoTech().getSessionModificationState()
           == SessionModificationState.RECEIVED_UPGRADE_TO_VIDEO_REQUEST) {
         return call;
@@ -500,7 +502,11 @@ public class CallList implements DialerCallDelegate {
   }
 
   public DialerCall getCallById(String callId) {
-    return mCallById.get(callId);
+    return callById.get(callId);
+  }
+
+  public Collection<DialerCall> getAllCalls() {
+    return callById.values();
   }
 
   /** Returns first call found in the call map with the specified state. */
@@ -515,7 +521,7 @@ public class CallList implements DialerCallDelegate {
   public DialerCall getCallWithState(int state, int positionToFind) {
     DialerCall retval = null;
     int position = 0;
-    for (DialerCall call : mCallById.values()) {
+    for (DialerCall call : callById.values()) {
       if (call.getState() == state) {
         if (position >= positionToFind) {
           retval = call;
@@ -529,14 +535,20 @@ public class CallList implements DialerCallDelegate {
     return retval;
   }
 
-  public int getCountForWaitingAccountCall() {
-    int count = 0;
-    for (DialerCall call : mCallById.values()) {
-      if (call.getState() == DialerCall.State.SELECT_PHONE_ACCOUNT) {
-          count++;
+  /**
+   * Return if there is any active or background call which was not a parent call (never had a child
+   * call)
+   */
+  public boolean hasNonParentActiveOrBackgroundCall() {
+    for (DialerCall call : callById.values()) {
+      if ((call.getState() == DialerCallState.ACTIVE
+              || call.getState() == DialerCallState.ONHOLD
+              || call.getState() == DialerCallState.CONFERENCED)
+          && !call.wasParentCall()) {
+        return true;
       }
     }
-    return count;
+    return false;
   }
 
   /**
@@ -546,13 +558,13 @@ public class CallList implements DialerCallDelegate {
    * active calls, so this is relatively safe thing to do.
    */
   public void clearOnDisconnect() {
-    for (DialerCall call : mCallById.values()) {
+    for (DialerCall call : callById.values()) {
       final int state = call.getState();
-      if (state != DialerCall.State.IDLE
-          && state != DialerCall.State.INVALID
-          && state != DialerCall.State.DISCONNECTED) {
+      if (state != DialerCallState.IDLE
+          && state != DialerCallState.INVALID
+          && state != DialerCallState.DISCONNECTED) {
 
-        call.setState(DialerCall.State.DISCONNECTED);
+        call.setState(DialerCallState.DISCONNECTED);
         call.setDisconnectCause(new DisconnectCause(DisconnectCause.UNKNOWN));
         updateCallInMap(call);
       }
@@ -565,7 +577,7 @@ public class CallList implements DialerCallDelegate {
    * disconnect cause, and that any pending disconnects should immediately occur.
    */
   public void onErrorDialogDismissed() {
-    final Iterator<DialerCall> iterator = mPendingDisconnectCalls.iterator();
+    final Iterator<DialerCall> iterator = pendingDisconnectCalls.iterator();
     while (iterator.hasNext()) {
       DialerCall call = iterator.next();
       iterator.remove();
@@ -580,8 +592,9 @@ public class CallList implements DialerCallDelegate {
    */
   @VisibleForTesting
   void onUpdateCall(DialerCall call) {
+    Trace.beginSection("CallList.onUpdateCall");
     LogUtil.d("CallList.onUpdateCall", String.valueOf(call));
-    if (!mCallById.containsKey(call.getId()) && call.isExternalCall()) {
+    if (!callById.containsKey(call.getId()) && call.isExternalCall()) {
       // When a regular call becomes external, it is removed from the call list, and there may be
       // pending updates to Telecom which are queued up on the Telecom call's handler which we no
       // longer wish to cause updates to the call in the CallList.  Bail here if the list of tracked
@@ -592,6 +605,7 @@ public class CallList implements DialerCallDelegate {
     if (updateCallInMap(call)) {
       LogUtil.i("CallList.onUpdateCall", String.valueOf(call));
     }
+    Trace.endSection();
   }
 
   /**
@@ -599,13 +613,15 @@ public class CallList implements DialerCallDelegate {
    * listeners to call back to determine what changed.
    */
   private void notifyGenericListeners() {
-    for (Listener listener : mListeners) {
+    Trace.beginSection("CallList.notifyGenericListeners");
+    for (Listener listener : listeners) {
       listener.onCallListChange(this);
     }
+    Trace.endSection();
   }
 
   private void notifyListenersOfDisconnect(DialerCall call) {
-    for (Listener listener : mListeners) {
+    for (Listener listener : listeners) {
       listener.onDisconnect(call);
     }
   }
@@ -616,40 +632,42 @@ public class CallList implements DialerCallDelegate {
    * @return false if no call previously existed and no call was added, otherwise true.
    */
   private boolean updateCallInMap(DialerCall call) {
+    Trace.beginSection("CallList.updateCallInMap");
     Objects.requireNonNull(call);
 
     boolean updated = false;
 
-    if (call.getState() == DialerCall.State.DISCONNECTED) {
+    if (call.getState() == DialerCallState.DISCONNECTED) {
       // update existing (but do not add!!) disconnected calls
-      if (mCallById.containsKey(call.getId())) {
+      if (callById.containsKey(call.getId())) {
         // For disconnected calls, we want to keep them alive for a few seconds so that the
         // UI has a chance to display anything it needs when a call is disconnected.
 
         // Set up a timer to destroy the call after X seconds.
-        final Message msg = mHandler.obtainMessage(EVENT_DISCONNECTED_TIMEOUT, call);
-        mHandler.sendMessageDelayed(msg, getDelayForDisconnect(call));
-        mPendingDisconnectCalls.add(call);
+        final Message msg = handler.obtainMessage(EVENT_DISCONNECTED_TIMEOUT, call);
+        handler.sendMessageDelayed(msg, getDelayForDisconnect(call));
+        pendingDisconnectCalls.add(call);
 
-        mCallById.put(call.getId(), call);
-        mCallByTelecomCall.put(call.getTelecomCall(), call);
+        callById.put(call.getId(), call);
+        callByTelecomCall.put(call.getTelecomCall(), call);
         updated = true;
       }
     } else if (!isCallDead(call)) {
-      mCallById.put(call.getId(), call);
-      mCallByTelecomCall.put(call.getTelecomCall(), call);
+      callById.put(call.getId(), call);
+      callByTelecomCall.put(call.getTelecomCall(), call);
       updated = true;
-    } else if (mCallById.containsKey(call.getId())) {
-      mCallById.remove(call.getId());
-      mCallByTelecomCall.remove(call.getTelecomCall());
+    } else if (callById.containsKey(call.getId())) {
+      callById.remove(call.getId());
+      callByTelecomCall.remove(call.getTelecomCall());
       updated = true;
     }
 
+    Trace.endSection();
     return updated;
   }
 
   private int getDelayForDisconnect(DialerCall call) {
-    if (call.getState() != DialerCall.State.DISCONNECTED) {
+    if (call.getState() != DialerCallState.DISCONNECTED) {
       throw new IllegalStateException();
     }
 
@@ -679,15 +697,15 @@ public class CallList implements DialerCallDelegate {
 
   private boolean isCallDead(DialerCall call) {
     final int state = call.getState();
-    return DialerCall.State.IDLE == state || DialerCall.State.INVALID == state;
+    return DialerCallState.IDLE == state || DialerCallState.INVALID == state;
   }
 
   /** Sets up a call for deletion and notifies listeners of change. */
   private void finishDisconnectedCall(DialerCall call) {
-    if (mPendingDisconnectCalls.contains(call)) {
-      mPendingDisconnectCalls.remove(call);
+    if (pendingDisconnectCalls.contains(call)) {
+      pendingDisconnectCalls.remove(call);
     }
-    call.setState(DialerCall.State.IDLE);
+    call.setState(DialerCallState.IDLE);
     updateCallInMap(call);
     notifyGenericListeners();
   }
@@ -698,14 +716,17 @@ public class CallList implements DialerCallDelegate {
    * @param rotation The new rotation angle (in degrees).
    */
   public void notifyCallsOfDeviceRotation(int rotation) {
-    for (DialerCall call : mCallById.values()) {
+    for (DialerCall call : callById.values()) {
       call.getVideoTech().setDeviceOrientation(rotation);
     }
   }
 
   public void onInCallUiShown(boolean forFullScreenIntent) {
-    for (DialerCall call : mCallById.values()) {
+    for (DialerCall call : callById.values()) {
       call.getLatencyReport().onInCallUiShown(forFullScreenIntent);
+    }
+    if (uiListeners != null) {
+      uiListeners.onInCallUiShown();
     }
   }
 
@@ -725,6 +746,15 @@ public class CallList implements DialerCallDelegate {
      * modify requests.
      */
     void onUpgradeToVideo(DialerCall call);
+
+    /**
+     * Called when a new RTT call request comes in This is the only method that gets called for RTT
+     * requests.
+     */
+    default void onUpgradeToRtt(DialerCall call, int rttRequestId) {}
+
+    /** Called when the SpeakEasy state of a Dialer call is mutated. */
+    default void onSpeakEasyStateChange() {}
 
     /** Called when the session modification state of a call changes. */
     void onSessionModificationStateChange(DialerCall call);
@@ -758,27 +788,37 @@ public class CallList implements DialerCallDelegate {
     void onSuplServiceMessage(String suplNotificationMessage);
   }
 
+  /** UiListener interface for measuring incall latency.(used by testing only) */
+  public interface UiListener {
+
+    /** Called when a new call gets added into call list from IncallServiceImpl */
+    void onCallAdded();
+
+    /** Called in the end of onResume method of IncallActivityCommon. */
+    void onInCallUiShown();
+  }
+
   private class DialerCallListenerImpl implements DialerCallListener {
 
-    @NonNull private final DialerCall mCall;
+    @NonNull private final DialerCall call;
 
     DialerCallListenerImpl(@NonNull DialerCall call) {
-      mCall = Assert.isNotNull(call);
+      this.call = Assert.isNotNull(call);
     }
 
     @Override
     public void onDialerCallDisconnect() {
-      if (updateCallInMap(mCall)) {
-        LogUtil.i("DialerCallListenerImpl.onDialerCallDisconnect", String.valueOf(mCall));
+      if (updateCallInMap(call)) {
+        LogUtil.i("DialerCallListenerImpl.onDialerCallDisconnect", String.valueOf(call));
         // notify those listening for all disconnects
-        notifyListenersOfDisconnect(mCall);
+        notifyListenersOfDisconnect(call);
       }
     }
 
     @Override
     public void onDialerCallUpdate() {
-      Trace.beginSection("onUpdate");
-      onUpdateCall(mCall);
+      Trace.beginSection("CallList.onDialerCallUpdate");
+      onUpdateCall(call);
       notifyGenericListeners();
       Trace.endSection();
     }
@@ -790,31 +830,45 @@ public class CallList implements DialerCallDelegate {
     public void onDialerCallLastForwardedNumberChange() {}
 
     @Override
+    public void onDialerCallUpgradeToRtt(int rttRequestId) {
+      for (Listener listener : listeners) {
+        listener.onUpgradeToRtt(call, rttRequestId);
+      }
+    }
+
+    @Override
+    public void onDialerCallSpeakEasyStateChange() {
+      for (Listener listener : listeners) {
+        listener.onSpeakEasyStateChange();
+      }
+    }
+
+    @Override
     public void onDialerCallUpgradeToVideo() {
-      for (Listener listener : mListeners) {
-        listener.onUpgradeToVideo(mCall);
+      for (Listener listener : listeners) {
+        listener.onUpgradeToVideo(call);
       }
     }
 
     @Override
     public void onWiFiToLteHandover() {
-      for (Listener listener : mListeners) {
-        listener.onWiFiToLteHandover(mCall);
+      for (Listener listener : listeners) {
+        listener.onWiFiToLteHandover(call);
       }
     }
 
     @Override
     public void onHandoverToWifiFailure() {
-      for (Listener listener : mListeners) {
-        listener.onHandoverToWifiFailed(mCall);
+      for (Listener listener : listeners) {
+        listener.onHandoverToWifiFailed(call);
       }
     }
 
     @Override
     public void onInternationalCallOnWifi() {
       LogUtil.enterBlock("DialerCallListenerImpl.onInternationalCallOnWifi");
-      for (Listener listener : mListeners) {
-        listener.onInternationalCallOnWifi(mCall);
+      for (Listener listener : listeners) {
+        listener.onInternationalCallOnWifi(call);
       }
     }
 
@@ -823,16 +877,16 @@ public class CallList implements DialerCallDelegate {
 
     @Override
     public void onDialerCallSessionModificationStateChange() {
-      for (Listener listener : mListeners) {
-        listener.onSessionModificationStateChange(mCall);
+      for (Listener listener : listeners) {
+        listener.onSessionModificationStateChange(call);
       }
     }
 
     @Override
     public void onSuplServiceMessage(String suplNotificationMessage) {
-      for (Listener listener : mListeners) {
-        listener.onSuplServiceMessage(suplNotificationMessage);
-      }
+        for (Listener listener : listeners) {
+            listener.onSuplServiceMessage(suplNotificationMessage);
+        }
     }
   }
 }

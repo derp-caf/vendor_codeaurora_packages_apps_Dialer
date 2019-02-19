@@ -16,15 +16,24 @@
 
 package com.android.dialer.simulator.impl;
 
+import com.android.dialer.inject.DialerVariant;
+import com.android.dialer.inject.InstallIn;
 import com.android.dialer.simulator.Simulator;
+import com.android.dialer.simulator.SimulatorConnectionsBank;
 import dagger.Binds;
 import dagger.Module;
 import javax.inject.Singleton;
 
 /** This module provides an instance of the simulator. */
+@InstallIn(variants = {DialerVariant.DIALER_TEST})
 @Module
 public abstract class SimulatorModule {
   @Binds
   @Singleton
   public abstract Simulator bindsSimulator(SimulatorImpl simulator);
+
+  @Binds
+  @Singleton
+  public abstract SimulatorConnectionsBank bindsSimulatorConnectionsBank(
+      SimulatorConnectionsBankImpl simulatorConnectionsBank);
 }

@@ -47,6 +47,8 @@ public interface InCallButtonUiDelegate {
 
   void changeToVideoClicked();
 
+  void changeToRttClicked();
+
   void switchCameraClicked(boolean useFrontFacingCamera);
 
   void toggleCameraClicked();
@@ -62,6 +64,8 @@ public interface InCallButtonUiDelegate {
   void onEndCallClicked();
 
   void showAudioRouteSelector();
+
+  void swapSimClicked();
 
   Context getContext();
 }

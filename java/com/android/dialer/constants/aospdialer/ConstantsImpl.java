@@ -16,6 +16,7 @@
 
 package com.android.dialer.constants;
 
+import android.content.Context;
 import android.support.annotation.NonNull;
 import com.android.dialer.proguard.UsedByReflection;
 
@@ -26,18 +27,41 @@ public class ConstantsImpl extends Constants {
   @Override
   @NonNull
   public String getFilteredNumberProviderAuthority() {
-    return "com.codeaurora.dialer.blocking.filterednumberprovider";
+    return "org.codeaurora.dialer.blocking.filterednumberprovider";
   }
 
   @Override
   @NonNull
   public String getFileProviderAuthority() {
-    return "com.codeaurora.dialer.files";
+    return "org.codeaurora.dialer.files";
   }
 
   @NonNull
   @Override
   public String getAnnotatedCallLogProviderAuthority() {
-    return "com.codeaurora.dialer.annotatedcalllog";
+    return "org.codeaurora.dialer.annotatedcalllog";
+  }
+
+  @NonNull
+  @Override
+  public String getPhoneLookupHistoryProviderAuthority() {
+    return "org.codeaurora.dialer.phonelookuphistory";
+  }
+
+  @NonNull
+  @Override
+  public String getPreferredSimFallbackProviderAuthority() {
+    return "org.codeaurora.dialer.preferredsimfallback";
+  }
+
+  @Override
+  public String getUserAgent(Context context) {
+    return null;
+  }
+
+  @NonNull
+  @Override
+  public String getSettingsActivity() {
+    return "com.android.dialer.app.settings.DialerSettingsActivity";
   }
 }

@@ -28,6 +28,7 @@ import android.graphics.drawable.Drawable;
 import android.hardware.display.DisplayManager;
 import android.os.BatteryManager;
 import android.os.Handler;
+import android.os.Trace;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.app.Fragment;
@@ -35,22 +36,25 @@ import android.support.v4.content.ContextCompat;
 import android.telecom.Call.Details;
 import android.telecom.StatusHints;
 import android.telecom.TelecomManager;
+import android.text.BidiFormatter;
+import android.text.TextDirectionHeuristics;
 import android.text.TextUtils;
 import android.view.Display;
 import android.view.View;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityManager;
 import com.android.contacts.common.ContactsUtils;
-import com.android.contacts.common.preference.ContactsPreferences;
-import com.android.contacts.common.util.ContactDisplayUtils;
 import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
-import com.android.dialer.compat.ActivityCompat;
-import com.android.dialer.configprovider.ConfigProviderBindings;
+import com.android.dialer.configprovider.ConfigProviderComponent;
+import com.android.dialer.contacts.ContactsComponent;
 import com.android.dialer.logging.DialerImpression;
 import com.android.dialer.logging.Logger;
 import com.android.dialer.multimedia.MultimediaData;
 import com.android.dialer.oem.MotorolaUtils;
+import com.android.dialer.phonenumberutil.PhoneNumberHelper;
+import com.android.dialer.postcall.PostCall;
+import com.android.dialer.preferredsim.suggestion.SuggestionProvider;
 import com.android.incallui.ContactInfoCache.ContactCacheEntry;
 import com.android.incallui.ContactInfoCache.ContactInfoCacheCallback;
 import com.android.incallui.InCallPresenter.InCallDetailsListener;
@@ -61,12 +65,14 @@ import com.android.incallui.InCallPresenter.IncomingCallListener;
 import com.android.incallui.call.CallList;
 import com.android.incallui.call.DialerCall;
 import com.android.incallui.call.DialerCallListener;
+import com.android.incallui.call.state.DialerCallState;
 import com.android.incallui.calllocation.CallLocation;
 import com.android.incallui.calllocation.CallLocationComponent;
 import com.android.incallui.incall.protocol.ContactPhotoType;
 import com.android.incallui.incall.protocol.InCallScreen;
 import com.android.incallui.incall.protocol.InCallScreenDelegate;
 import com.android.incallui.incall.protocol.PrimaryCallState;
+import com.android.incallui.incall.protocol.PrimaryCallState.ButtonState;
 import com.android.incallui.incall.protocol.PrimaryInfo;
 import com.android.incallui.incall.protocol.SecondaryInfo;
 import com.android.incallui.videotech.utils.SessionModificationState;
@@ -107,26 +113,26 @@ public class CallCardPresenter
 
   private static final long CONFIG_MIN_BATTERY_PERCENT_FOR_EMERGENCY_LOCATION_DEFAULT = 10;
 
-  private final Context mContext;
+  private final Context context;
   private final Handler handler = new Handler();
 
-  private DialerCall mPrimary;
-  private DialerCall mSecondary;
-  private ContactCacheEntry mPrimaryContactInfo;
-  private ContactCacheEntry mSecondaryContactInfo;
-  @Nullable private ContactsPreferences mContactsPreferences;
-  private boolean mIsFullscreen = false;
-  private InCallScreen mInCallScreen;
+  private DialerCall primary;
+  private String primaryNumber;
+  private DialerCall secondary;
+  private String secondaryNumber;
+  private ContactCacheEntry primaryContactInfo;
+  private ContactCacheEntry secondaryContactInfo;
+  private boolean isFullscreen = false;
+  private InCallScreen inCallScreen;
   private boolean isInCallScreenReady;
   private boolean shouldSendAccessibilityEvent;
-  private final AccessibilityManager accessibilityManager;
 
   @NonNull private final CallLocation callLocation;
   private final Runnable sendAccessibilityEventRunnable =
       new Runnable() {
         @Override
         public void run() {
-          shouldSendAccessibilityEvent = !sendAccessibilityEvent(mContext, getUi());
+          shouldSendAccessibilityEvent = !sendAccessibilityEvent(context, getUi());
           LogUtil.i(
               "CallCardPresenter.sendAccessibilityEventRunnable",
               "still should send: %b",
@@ -138,11 +144,9 @@ public class CallCardPresenter
       };
 
   public CallCardPresenter(Context context) {
-    LogUtil.i("CallCardController.constructor", null);
-    mContext = Assert.isNotNull(context).getApplicationContext();
-    callLocation = CallLocationComponent.get(mContext).getCallLocation();
-    accessibilityManager = (AccessibilityManager) mContext
-        .getSystemService(Context.ACCESSIBILITY_SERVICE);
+    LogUtil.i("CallCardPresenter.constructor", null);
+    this.context = Assert.isNotNull(context).getApplicationContext();
+    callLocation = CallLocationComponent.get(this.context).getCallLocation();
   }
 
   private static boolean hasCallSubject(DialerCall call) {
@@ -152,21 +156,19 @@ public class CallCardPresenter
   @Override
   public void onInCallScreenDelegateInit(InCallScreen inCallScreen) {
     Assert.isNotNull(inCallScreen);
-    mInCallScreen = inCallScreen;
-    mContactsPreferences = ContactsPreferencesFactory.newContactsPreferences(mContext);
+    this.inCallScreen = inCallScreen;
 
     // Call may be null if disconnect happened already.
     DialerCall call = CallList.getInstance().getFirstCall();
     if (call != null) {
-      mPrimary = call;
-      if (shouldShowNoteSentToast(mPrimary)) {
-        mInCallScreen.showNoteSentToast();
+      primary = call;
+      if (shouldShowNoteSentToast(primary)) {
+        this.inCallScreen.showNoteSentToast();
       }
       call.addListener(this);
-
       // start processing lookups right away.
       if (!call.isConferenceCall()) {
-        startContactInfoSearch(call, true, call.getState() == DialerCall.State.INCOMING);
+        startContactInfoSearch(call, true, call.getState() == DialerCallState.INCOMING);
       } else {
         updateContactEntry(null, true);
       }
@@ -177,14 +179,11 @@ public class CallCardPresenter
 
   @Override
   public void onInCallScreenReady() {
-    LogUtil.i("CallCardController.onInCallScreenReady", null);
+    LogUtil.i("CallCardPresenter.onInCallScreenReady", null);
     Assert.checkState(!isInCallScreenReady);
-    if (mContactsPreferences != null) {
-      mContactsPreferences.refreshValue(ContactsPreferences.DISPLAY_ORDER_KEY);
-    }
 
     // Contact search may have completed before ui is ready.
-    if (mPrimaryContactInfo != null) {
+    if (primaryContactInfo != null) {
       updatePrimaryDisplayInfo();
     }
 
@@ -196,31 +195,31 @@ public class CallCardPresenter
     isInCallScreenReady = true;
 
     // Log location impressions
-    if (isOutgoingEmergencyCall(mPrimary)) {
-      Logger.get(mContext).logImpression(DialerImpression.Type.EMERGENCY_NEW_EMERGENCY_CALL);
-    } else if (isIncomingEmergencyCall(mPrimary) || isIncomingEmergencyCall(mSecondary)) {
-      Logger.get(mContext).logImpression(DialerImpression.Type.EMERGENCY_CALLBACK);
+    if (isOutgoingEmergencyCall(primary)) {
+      Logger.get(context).logImpression(DialerImpression.Type.EMERGENCY_NEW_EMERGENCY_CALL);
+    } else if (isIncomingEmergencyCall(primary) || isIncomingEmergencyCall(secondary)) {
+      Logger.get(context).logImpression(DialerImpression.Type.EMERGENCY_CALLBACK);
     }
 
     // Showing the location may have been skipped if the UI wasn't ready during previous layout.
     if (shouldShowLocation()) {
-      updatePrimaryDisplayInfo();
+      inCallScreen.showLocationUi(getLocationFragment());
 
       // Log location impressions
       if (!hasLocationPermission()) {
-        Logger.get(mContext).logImpression(DialerImpression.Type.EMERGENCY_NO_LOCATION_PERMISSION);
+        Logger.get(context).logImpression(DialerImpression.Type.EMERGENCY_NO_LOCATION_PERMISSION);
       } else if (isBatteryTooLowForEmergencyLocation()) {
-        Logger.get(mContext)
+        Logger.get(context)
             .logImpression(DialerImpression.Type.EMERGENCY_BATTERY_TOO_LOW_TO_GET_LOCATION);
-      } else if (!callLocation.canGetLocation(mContext)) {
-        Logger.get(mContext).logImpression(DialerImpression.Type.EMERGENCY_CANT_GET_LOCATION);
+      } else if (!callLocation.canGetLocation(context)) {
+        Logger.get(context).logImpression(DialerImpression.Type.EMERGENCY_CANT_GET_LOCATION);
       }
     }
   }
 
   @Override
   public void onInCallScreenUnready() {
-    LogUtil.i("CallCardController.onInCallScreenUnready", null);
+    LogUtil.i("CallCardPresenter.onInCallScreenUnready", null);
     Assert.checkState(isInCallScreenReady);
 
     // stop getting call state changes
@@ -228,15 +227,15 @@ public class CallCardPresenter
     InCallPresenter.getInstance().removeIncomingCallListener(this);
     InCallPresenter.getInstance().removeDetailsListener(this);
     InCallPresenter.getInstance().removeInCallEventListener(this);
-    if (mPrimary != null) {
-      mPrimary.removeListener(this);
+    if (primary != null) {
+      primary.removeListener(this);
     }
 
     callLocation.close();
 
-    mPrimary = null;
-    mPrimaryContactInfo = null;
-    mSecondaryContactInfo = null;
+    primary = null;
+    primaryContactInfo = null;
+    secondaryContactInfo = null;
     isInCallScreenReady = false;
   }
 
@@ -248,8 +247,10 @@ public class CallCardPresenter
 
   @Override
   public void onStateChange(InCallState oldState, InCallState newState, CallList callList) {
+    Trace.beginSection("CallCardPresenter.onStateChange");
     LogUtil.v("CallCardPresenter.onStateChange", "oldState: %s, newState: %s", oldState, newState);
-    if (mInCallScreen == null) {
+    if (inCallScreen == null) {
+      Trace.endSection();
       return;
     }
 
@@ -266,32 +267,42 @@ public class CallCardPresenter
 
       // getCallToDisplay doesn't go through outgoing or incoming calls. It will return the
       // highest priority call to display as the secondary call.
-      secondary = getCallToDisplay(callList, null, true);
+      secondary = InCallPresenter.getCallToDisplay(callList, null, true);
     } else if (newState == InCallState.INCALL) {
-      primary = getCallToDisplay(callList, null, false);
-      secondary = getCallToDisplay(callList, primary, true);
+      primary = InCallPresenter.getCallToDisplay(callList, null, false);
+      secondary = InCallPresenter.getCallToDisplay(callList, primary, true);
     }
 
     LogUtil.v("CallCardPresenter.onStateChange", "primary call: " + primary);
     LogUtil.v("CallCardPresenter.onStateChange", "secondary call: " + secondary);
+    String primaryNumber = null;
+    String secondaryNumber = null;
+    if (primary != null) {
+      primaryNumber = primary.getNumber();
+    }
+    if (secondary != null) {
+      secondaryNumber = secondary.getNumber();
+    }
 
     final boolean primaryChanged =
-        !(DialerCall.areSame(mPrimary, primary) && DialerCall.areSameNumber(mPrimary, primary));
+        !(DialerCall.areSame(this.primary, primary)
+            && TextUtils.equals(this.primaryNumber, primaryNumber));
     final boolean secondaryChanged =
-        !(DialerCall.areSame(mSecondary, secondary)
-            && DialerCall.areSameNumber(mSecondary, secondary));
+        !(DialerCall.areSame(this.secondary, secondary)
+            && TextUtils.equals(this.secondaryNumber, secondaryNumber));
 
-    mSecondary = secondary;
-    DialerCall previousPrimary = mPrimary;
-    mPrimary = primary;
+    this.secondary = secondary;
+    this.secondaryNumber = secondaryNumber;
+    DialerCall previousPrimary = this.primary;
+    this.primary = primary;
+    this.primaryNumber = primaryNumber;
 
-    if (mPrimary != null) {
-      InCallPresenter.getInstance().onForegroundCallChanged(mPrimary);
-      mInCallScreen.updateInCallScreenColors();
+    if (this.primary != null) {
+      inCallScreen.updateInCallScreenColors();
     }
 
     if (primaryChanged && shouldShowNoteSentToast(primary)) {
-      mInCallScreen.showNoteSentToast();
+      inCallScreen.showNoteSentToast();
     }
 
     // Refresh primary call information if either:
@@ -302,39 +313,37 @@ public class CallCardPresenter
       if (previousPrimary != null) {
         previousPrimary.removeListener(this);
       }
-      mPrimary.addListener(this);
+      this.primary.addListener(this);
 
-      mPrimaryContactInfo =
-          ContactInfoCache.buildCacheEntryFromCall(
-              mContext, mPrimary, mPrimary.getState() == DialerCall.State.INCOMING);
+      primaryContactInfo = ContactInfoCache.buildCacheEntryFromCall(context, this.primary);
       updatePrimaryDisplayInfo();
-      maybeStartSearch(mPrimary, true);
+      maybeStartSearch(this.primary, true);
     }
 
-    if (previousPrimary != null && mPrimary == null) {
+    if (previousPrimary != null && this.primary == null) {
       previousPrimary.removeListener(this);
     }
 
-    if (mSecondary == null) {
-      // Secondary call may have ended.  Update the ui.
-      mSecondaryContactInfo = null;
-      updateSecondaryDisplayInfo();
-    } else if (secondaryChanged) {
-      // secondary call has changed
-      mSecondaryContactInfo =
-          ContactInfoCache.buildCacheEntryFromCall(
-              mContext, mSecondary, mSecondary.getState() == DialerCall.State.INCOMING);
-      updateSecondaryDisplayInfo();
-      maybeStartSearch(mSecondary, false);
+    if (secondaryChanged) {
+      if (this.secondary == null) {
+        // Secondary call may have ended.  Update the ui.
+        secondaryContactInfo = null;
+        updateSecondaryDisplayInfo();
+      } else {
+        // secondary call has changed
+        secondaryContactInfo = ContactInfoCache.buildCacheEntryFromCall(context, this.secondary);
+        updateSecondaryDisplayInfo();
+        maybeStartSearch(this.secondary, false);
+      }
     }
 
     // Set the call state
-    int callState = DialerCall.State.IDLE;
-    if (mPrimary != null) {
-      callState = mPrimary.getState();
+    int callState = DialerCallState.IDLE;
+    if (this.primary != null) {
+      callState = this.primary.getState();
       updatePrimaryCallState();
     } else {
-      getUi().setCallState(PrimaryCallState.createEmptyPrimaryCallState());
+      getUi().setCallState(PrimaryCallState.empty());
     }
 
     maybeShowManageConferenceCallButton();
@@ -342,10 +351,11 @@ public class CallCardPresenter
     // Hide the end call button instantly if we're receiving an incoming call.
     getUi()
         .setEndCallButtonEnabled(
-            shouldShowEndCallButton(mPrimary, callState),
-            callState != DialerCall.State.INCOMING /* animate */);
+            shouldShowEndCallButton(this.primary, callState),
+            callState != DialerCallState.INCOMING /* animate */);
 
     maybeSendAccessibilityEvent(oldState, newState, primaryChanged);
+    Trace.endSection();
   }
 
   @Override
@@ -389,7 +399,7 @@ public class CallCardPresenter
   public void onDialerCallChildNumberChange() {
     LogUtil.v("CallCardPresenter.onDialerCallChildNumberChange", "");
 
-    if (mPrimary == null) {
+    if (primary == null) {
       return;
     }
     updatePrimaryDisplayInfo();
@@ -400,7 +410,7 @@ public class CallCardPresenter
   public void onDialerCallLastForwardedNumberChange() {
     LogUtil.v("CallCardPresenter.onDialerCallLastForwardedNumberChange", "");
 
-    if (mPrimary == null) {
+    if (primary == null) {
       return;
     }
     updatePrimaryDisplayInfo();
@@ -415,25 +425,23 @@ public class CallCardPresenter
   public void onDialerCallSessionModificationStateChange() {
     LogUtil.enterBlock("CallCardPresenter.onDialerCallSessionModificationStateChange");
 
-    if (mPrimary == null) {
+    if (primary == null) {
       return;
     }
     getUi()
         .setEndCallButtonEnabled(
-            mPrimary.getVideoTech().getSessionModificationState()
+            primary.getVideoTech().getSessionModificationState()
                 != SessionModificationState.RECEIVED_UPGRADE_TO_VIDEO_REQUEST,
             true /* shouldAnimate */);
     updatePrimaryCallState();
   }
 
   private boolean shouldRefreshPrimaryInfo(boolean primaryChanged) {
-    if (mPrimary == null) {
+    if (primary == null) {
       return false;
     }
     return primaryChanged
-        || mInCallScreen.isManageConferenceVisible() != shouldShowManageConference()
-        || (mPrimaryContactInfo != null && !TextUtils.equals(mPrimaryContactInfo.number,
-        mPrimary.getNumber()));
+        || inCallScreen.isManageConferenceVisible() != shouldShowManageConference();
   }
 
   private String getPrimaryInfoLocation(ContactCacheEntry contactInfo) {
@@ -449,16 +457,16 @@ public class CallCardPresenter
    */
   private String getLabelWithLocation() {
     String label = getConnectionLabel();
-    if (mPrimaryContactInfo != null) {
-      String name = getNameForCall(mPrimaryContactInfo);
-      String primaryLocation = getPrimaryInfoLocation(mPrimaryContactInfo);
-      boolean nameIsNumber = name != null && !name.equals(mPrimaryContactInfo.number);
-      boolean isConferenceCall = mPrimary != null && mPrimary.isConferenceCall();
-      boolean isEmergencyCall =  mPrimary != null && mPrimary.isEmergencyCall();
+    if (primaryContactInfo != null) {
+      String name = getNameForCall(primaryContactInfo);
+      String primaryLocation = getPrimaryInfoLocation(primaryContactInfo);
+      boolean nameIsNumber = name != null && !name.equals(primaryContactInfo.number);
+      boolean isConferenceCall = primary != null && primary.isConferenceCall();
+      boolean isEmergencyCall =  primary != null && primary.isEmergencyCall();
       if (!(nameIsNumber || isConferenceCall) && isPrimaryCallActive()) {
         label += "  ";
         if (isEmergencyCall) {
-          label += mPrimary.getNumber();
+          label += primary.getNumber();
         } else {
           label += primaryLocation;
         }
@@ -468,60 +476,86 @@ public class CallCardPresenter
   }
 
   private void updatePrimaryCallState() {
-    if (getUi() != null && mPrimary != null) {
+    if (getUi() != null && primary != null) {
       boolean isWorkCall =
-          mPrimary.hasProperty(PROPERTY_ENTERPRISE_CALL)
-              || (mPrimaryContactInfo != null
-                  && mPrimaryContactInfo.userType == ContactsUtils.USER_TYPE_WORK);
+          primary.hasProperty(PROPERTY_ENTERPRISE_CALL)
+              || (primaryContactInfo != null
+                  && primaryContactInfo.userType == ContactsUtils.USER_TYPE_WORK);
       boolean isHdAudioCall =
-          isPrimaryCallActive() && mPrimary.hasProperty(Details.PROPERTY_HIGH_DEF_AUDIO);
+          isPrimaryCallActive() && primary.hasProperty(Details.PROPERTY_HIGH_DEF_AUDIO);
       boolean isAttemptingHdAudioCall =
           !isHdAudioCall
-              && !mPrimary.hasProperty(DialerCall.PROPERTY_CODEC_KNOWN)
-              && MotorolaUtils.shouldBlinkHdIconWhenConnectingCall(mContext);
+              && !primary.hasProperty(DialerCall.PROPERTY_CODEC_KNOWN)
+              && MotorolaUtils.shouldBlinkHdIconWhenConnectingCall(context);
 
-      boolean isBusiness = mPrimaryContactInfo != null && mPrimaryContactInfo.isBusiness;
-      boolean isConfCall = (mPrimary.isConferenceCall() || mPrimary.isIncomingConfCall())
-          && !mPrimary.hasProperty(Details.PROPERTY_GENERIC_CONFERENCE);
+      boolean isBusiness = primaryContactInfo != null && primaryContactInfo.isBusiness;
+      boolean isConfCall = (primary.isConferenceCall() || primary.isIncomingConfCall())
+          && !primary.hasProperty(Details.PROPERTY_GENERIC_CONFERENCE);
 
       String label = getLabelWithLocation();
+      String primaryLocation = getPrimaryInfoLocation(primaryContactInfo);
 
       // Check for video state change and update the visibility of the contact photo.  The contact
       // photo is hidden when the incoming video surface is shown.
       // The contact photo visibility can also change in setPrimary().
       boolean shouldShowContactPhoto =
-          !VideoCallPresenter.showIncomingVideo(mPrimary.getVideoState(), mPrimary.getState());
+          !VideoCallPresenter.showIncomingVideo(primary.getVideoState(), primary.getState());
       getUi()
           .setCallState(
-              new PrimaryCallState(
-                  mPrimary.getState(),
-                  !QtiCallUtils.hasVideoCrbtVoLteCall(mContext, mPrimary) && mPrimary.isVideoCall(),
-                  mPrimary.getVideoTech().getSessionModificationState(),
-                  mPrimary.getDisconnectCause(),
-                  label,
-                  getCallStateIcon(),
-                  getGatewayNumber(),
-                  shouldShowCallSubject(mPrimary) ? mPrimary.getCallSubject() : null,
-                  mPrimary.getCallbackNumber(),
-                  mPrimary.hasProperty(Details.PROPERTY_WIFI),
-                  isConfCall,
-                  isWorkCall,
-                  isAttemptingHdAudioCall,
-                  isHdAudioCall,
-                  !TextUtils.isEmpty(mPrimary.getLastForwardedNumber()),
-                  shouldShowContactPhoto,
-                  mPrimary.getConnectTimeMillis(),
-                  CallerInfoUtils.isVoiceMailNumber(mContext, mPrimary),
-                  mPrimary.isRemotelyHeld(),
-                  isBusiness,
-                  supports2ndCallOnHold()));
+              PrimaryCallState.builder()
+                  .setState(primary.getState())
+                  .setIsVideoCall(!QtiCallUtils.hasVideoCrbtVoLteCall(context, primary)
+                      && primary.isVideoCall())
+                  .setSessionModificationState(primary.getVideoTech().getSessionModificationState())
+                  .setDisconnectCause(primary.getDisconnectCause())
+                  .setConnectionLabel(getConnectionLabel() + "  " + (isPrimaryCallActive() ?
+                      (isOutgoingEmergencyCall(primary) ?
+                      primary.getNumber() : primaryLocation) : ""))
+                  .setPrimaryColor(
+                      InCallPresenter.getInstance().getThemeColorManager().getPrimaryColor())
+                  .setSimSuggestionReason(getSimSuggestionReason())
+                  .setConnectionIcon(getCallStateIcon())
+                  .setGatewayNumber(getGatewayNumber())
+                  .setCallSubject(shouldShowCallSubject(primary) ? primary.getCallSubject() : null)
+                  .setCallbackNumber(
+                      PhoneNumberHelper.formatNumber(
+                          context, primary.getCallbackNumber(), primary.getSimCountryIso()))
+                  .setIsWifi(primary.hasProperty(Details.PROPERTY_WIFI))
+                  .setIsConference(isConfCall)
+                  .setIsWorkCall(isWorkCall)
+                  .setIsHdAttempting(isAttemptingHdAudioCall)
+                  .setIsHdAudioCall(isHdAudioCall)
+                  .setIsForwardedNumber(
+                      !TextUtils.isEmpty(primary.getLastForwardedNumber())
+                          || primary.isCallForwarded())
+                  .setShouldShowContactPhoto(shouldShowContactPhoto)
+                  .setConnectTimeMillis(primary.getConnectTimeMillis())
+                  .setIsVoiceMailNumber(primary.isVoiceMailNumber())
+                  .setIsRemotelyHeld(primary.isRemotelyHeld())
+                  .setIsBusinessNumber(isBusiness)
+                  .setSupportsCallOnHold(supports2ndCallOnHold())
+                  .setSwapToSecondaryButtonState(getSwapToSecondaryButtonState())
+                  .setIsAssistedDialed(primary.isAssistedDialed())
+                  .setCustomLabel(null)
+                  .setAssistedDialingExtras(primary.getAssistedDialingExtras())
+                  .build());
 
       InCallActivity activity =
-          (InCallActivity) (mInCallScreen.getInCallScreenFragment().getActivity());
+          (InCallActivity) (inCallScreen.getInCallScreenFragment().getActivity());
       if (activity != null) {
         activity.onPrimaryCallStateChanged();
       }
     }
+  }
+
+  private @ButtonState int getSwapToSecondaryButtonState() {
+    if (secondary == null) {
+      return ButtonState.NOT_SUPPORT;
+    }
+    if (primary.getState() == DialerCallState.ACTIVE) {
+      return ButtonState.ENABLED;
+    }
+    return ButtonState.DISABLED;
   }
 
   /** Only show the conference call button if we can manage the conference. */
@@ -536,12 +570,11 @@ public class CallCardPresenter
    * @return {@code True} if the manage conference button should be visible.
    */
   private boolean shouldShowManageConference() {
-    if (mPrimary == null) {
+    if (primary == null) {
       return false;
     }
 
-    return mPrimary.can(android.telecom.Call.Details.CAPABILITY_MANAGE_CONFERENCE)
-        && !mIsFullscreen;
+    return primary.can(android.telecom.Call.Details.CAPABILITY_MANAGE_CONFERENCE) && !isFullscreen;
   }
 
   private boolean supports2ndCallOnHold() {
@@ -555,19 +588,19 @@ public class CallCardPresenter
 
   @Override
   public void onCallStateButtonClicked() {
-    Intent broadcastIntent = Bindings.get(mContext).getCallStateButtonBroadcastIntent(mContext);
+    Intent broadcastIntent = Bindings.get(context).getCallStateButtonBroadcastIntent(context);
     if (broadcastIntent != null) {
       LogUtil.v(
           "CallCardPresenter.onCallStateButtonClicked",
           "sending call state button broadcast: " + broadcastIntent);
-      mContext.sendBroadcast(broadcastIntent, Manifest.permission.READ_PHONE_STATE);
+      context.sendBroadcast(broadcastIntent, Manifest.permission.READ_PHONE_STATE);
     }
   }
 
   @Override
   public void onManageConferenceClicked() {
     InCallActivity activity =
-        (InCallActivity) (mInCallScreen.getInCallScreenFragment().getActivity());
+        (InCallActivity) (inCallScreen.getInCallScreenFragment().getActivity());
     activity.showConferenceFragment(true);
   }
 
@@ -576,30 +609,25 @@ public class CallCardPresenter
     InCallPresenter.getInstance().onShrinkAnimationComplete();
   }
 
-  @Override
-  public Drawable getDefaultContactPhotoDrawable() {
-    return ContactInfoCache.getInstance(mContext).getDefaultContactPhotoDrawable();
-  }
-
   private void maybeStartSearch(DialerCall call, boolean isPrimary) {
     // no need to start search for conference calls which show generic info.
     if (call != null && !call.isConferenceCall()) {
-      startContactInfoSearch(call, isPrimary, call.getState() == DialerCall.State.INCOMING);
+      startContactInfoSearch(call, isPrimary, call.getState() == DialerCallState.INCOMING);
     }
   }
 
   /** Starts a query for more contact data for the save primary and secondary calls. */
   private void startContactInfoSearch(
       final DialerCall call, final boolean isPrimary, boolean isIncoming) {
-    final ContactInfoCache cache = ContactInfoCache.getInstance(mContext);
+    final ContactInfoCache cache = ContactInfoCache.getInstance(context);
 
     cache.findInfo(call, isIncoming, new ContactLookupCallback(this, isPrimary));
   }
 
   private void onContactInfoComplete(String callId, ContactCacheEntry entry, boolean isPrimary) {
     final boolean entryMatchesExistingCall =
-        (isPrimary && mPrimary != null && TextUtils.equals(callId, mPrimary.getId()))
-            || (!isPrimary && mSecondary != null && TextUtils.equals(callId, mSecondary.getId()));
+        (isPrimary && primary != null && TextUtils.equals(callId, primary.getId()))
+            || (!isPrimary && secondary != null && TextUtils.equals(callId, secondary.getId()));
     if (entryMatchesExistingCall) {
       updateContactEntry(entry, isPrimary);
     } else {
@@ -612,8 +640,8 @@ public class CallCardPresenter
     if (call != null) {
       call.getLogState().contactLookupResult = entry.contactLookupResult;
     }
-    if (entry.contactUri != null) {
-      CallerInfoUtils.sendViewNotification(mContext, entry.contactUri);
+    if (entry.lookupUri != null) {
+      CallerInfoUtils.sendViewNotification(context, entry.lookupUri);
     }
   }
 
@@ -623,9 +651,9 @@ public class CallCardPresenter
     }
 
     if (entry.photo != null) {
-      if (mPrimary != null && callId.equals(mPrimary.getId())) {
+      if (primary != null && callId.equals(primary.getId())) {
         updateContactEntry(entry, true /* isPrimary */);
-      } else if (mSecondary != null && callId.equals(mSecondary.getId())) {
+      } else if (secondary != null && callId.equals(secondary.getId())) {
         updateContactEntry(entry, false /* isPrimary */);
       }
     }
@@ -633,64 +661,16 @@ public class CallCardPresenter
 
   private void updateContactEntry(ContactCacheEntry entry, boolean isPrimary) {
     if (isPrimary) {
-      mPrimaryContactInfo = entry;
+      primaryContactInfo = entry;
       updatePrimaryDisplayInfo();
     } else {
-      mSecondaryContactInfo = entry;
+      secondaryContactInfo = entry;
       updateSecondaryDisplayInfo();
     }
   }
 
-  /**
-   * Get the highest priority call to display. Goes through the calls and chooses which to return
-   * based on priority of which type of call to display to the user. Callers can use the "ignore"
-   * feature to get the second best call by passing a previously found primary call as ignore.
-   *
-   * @param ignore A call to ignore if found.
-   */
-  private DialerCall getCallToDisplay(
-      CallList callList, DialerCall ignore, boolean skipDisconnected) {
-    // Active calls come second.  An active call always gets precedent.
-    DialerCall retval = callList.getActiveCall();
-    if (retval != null && retval != ignore) {
-      return retval;
-    }
-
-    // Sometimes there is intemediate state that two calls are in active even one is about
-    // to be on hold.
-    retval = callList.getSecondActiveCall();
-    if (retval != null && retval != ignore) {
-      return retval;
-    }
-
-    // Disconnected calls get primary position if there are no active calls
-    // to let user know quickly what call has disconnected. Disconnected
-    // calls are very short lived.
-    if (!skipDisconnected) {
-      retval = callList.getDisconnectingCall();
-      if (retval != null && retval != ignore) {
-        return retval;
-      }
-      retval = callList.getDisconnectedCall();
-      if (retval != null && retval != ignore) {
-        return retval;
-      }
-    }
-
-    // Then we go to background call (calls on hold)
-    retval = callList.getBackgroundCall();
-    if (retval != null && retval != ignore) {
-      return retval;
-    }
-
-    // Lastly, we go to a second background call.
-    retval = callList.getSecondBackgroundCall();
-
-    return retval;
-  }
-
   private void updatePrimaryDisplayInfo() {
-    if (mInCallScreen == null) {
+    if (inCallScreen == null) {
       // TODO: May also occur if search result comes back after ui is destroyed. Look into
       // removing that case completely.
       LogUtil.v(
@@ -699,103 +679,106 @@ public class CallCardPresenter
       return;
     }
 
-    if (mPrimary == null) {
+    if (primary == null) {
       // Clear the primary display info.
-      mInCallScreen.setPrimary(PrimaryInfo.createEmptyPrimaryInfo());
+      inCallScreen.setPrimary(PrimaryInfo.empty());
       return;
     }
 
     // Hide the contact photo if we are in a video call and the incoming video surface is
     // showing.
     boolean showContactPhoto =
-        !VideoCallPresenter.showIncomingVideo(mPrimary.getVideoState(), mPrimary.getState());
+        !VideoCallPresenter.showIncomingVideo(primary.getVideoState(), primary.getState());
 
     // DialerCall placed through a work phone account.
-    boolean hasWorkCallProperty = mPrimary.hasProperty(PROPERTY_ENTERPRISE_CALL);
+    boolean hasWorkCallProperty = primary.hasProperty(PROPERTY_ENTERPRISE_CALL);
 
     MultimediaData multimediaData = null;
-    if (mPrimary.getEnrichedCallSession() != null) {
-      multimediaData = mPrimary.getEnrichedCallSession().getMultimediaData();
+    if (primary.getEnrichedCallSession() != null) {
+      multimediaData = primary.getEnrichedCallSession().getMultimediaData();
     }
 
-    if (mPrimary.isConferenceCall()) {
+    if (primary.isConferenceCall()) {
       LogUtil.v(
           "CallCardPresenter.updatePrimaryDisplayInfo",
           "update primary display info for conference call.");
 
-      mInCallScreen.setPrimary(
-          new PrimaryInfo(
-              null /* number */,
-              CallerInfoUtils.getConferenceString(
-                  mContext, mPrimary.hasProperty(Details.PROPERTY_GENERIC_CONFERENCE)),
-              false /* nameIsNumber */,
-              null /* location */,
-              null /* label */,
-              null /* photo */,
-              ContactPhotoType.DEFAULT_PLACEHOLDER,
-              false /* isSipCall */,
-              showContactPhoto,
-              hasWorkCallProperty,
-              false /* isSpam */,
-              false /* answeringDisconnectsOngoingCall */,
-              shouldShowLocation(),
-              null /* contactInfoLookupKey */,
-              null /* enrichedCallMultimediaData */,
-              mPrimary.getNumberPresentation()));
-    } else if (mPrimaryContactInfo != null) {
+      inCallScreen.setPrimary(
+          PrimaryInfo.builder()
+              .setName(
+                  CallerInfoUtils.getConferenceString(
+                      context, primary.hasProperty(Details.PROPERTY_GENERIC_CONFERENCE)))
+              .setNameIsNumber(false)
+              .setPhotoType(ContactPhotoType.DEFAULT_PLACEHOLDER)
+              .setIsSipCall(false)
+              .setIsContactPhotoShown(showContactPhoto)
+              .setIsWorkCall(hasWorkCallProperty)
+              .setIsSpam(false)
+              .setIsLocalContact(false)
+              .setAnsweringDisconnectsOngoingCall(false)
+              .setShouldShowLocation(shouldShowLocation())
+              .setShowInCallButtonGrid(true)
+              .setNumberPresentation(primary.getNumberPresentation())
+              .build());
+    } else if (primaryContactInfo != null) {
       LogUtil.v(
           "CallCardPresenter.updatePrimaryDisplayInfo",
-          "update primary display info for " + mPrimaryContactInfo);
+          "update primary display info for " + primaryContactInfo);
 
-      String name = getNameForCall(mPrimaryContactInfo);
+      String name = getNameForCall(primaryContactInfo);
       String number;
 
-      boolean isChildNumberShown = !TextUtils.isEmpty(mPrimary.getChildNumber());
-      boolean isForwardedNumberShown = !TextUtils.isEmpty(mPrimary.getLastForwardedNumber());
-      boolean isCallSubjectShown = shouldShowCallSubject(mPrimary);
+      boolean isChildNumberShown = !TextUtils.isEmpty(primary.getChildNumber());
+      boolean isForwardedNumberShown = !TextUtils.isEmpty(primary.getLastForwardedNumber());
+      boolean isCallSubjectShown = shouldShowCallSubject(primary);
 
       if (isCallSubjectShown) {
         number = null;
       } else if (isChildNumberShown) {
-        number = mContext.getString(R.string.child_number, mPrimary.getChildNumber());
+        number = context.getString(R.string.child_number, primary.getChildNumber());
       } else if (isForwardedNumberShown) {
         // Use last forwarded number instead of second line, if present.
-        number = mPrimary.getLastForwardedNumber();
+        number = primary.getLastForwardedNumber();
       } else {
-        number = mPrimaryContactInfo.number;
+        number = primaryContactInfo.number;
       }
 
-      boolean nameIsNumber = name != null && name.equals(mPrimaryContactInfo.number);
+      boolean nameIsNumber = name != null && name.equals(primaryContactInfo.number);
 
       // DialerCall with caller that is a work contact.
-      boolean isWorkContact = (mPrimaryContactInfo.userType == ContactsUtils.USER_TYPE_WORK);
-      mInCallScreen.setPrimary(
-          new PrimaryInfo(
-              number,
-              mPrimary.updateNameIfRestricted(name),
-              nameIsNumber,
-              shouldShowLocationAsLabel(nameIsNumber, mPrimaryContactInfo.shouldShowLocation)
-                  ? mPrimaryContactInfo.location
-                  : null,
-              isChildNumberShown || isCallSubjectShown ? null : mPrimaryContactInfo.label,
-              mPrimaryContactInfo.photo,
-              mPrimaryContactInfo.photoType,
-              mPrimaryContactInfo.isSipCall,
-              showContactPhoto,
-              hasWorkCallProperty || isWorkContact,
-              mPrimary.isSpam(),
-              mPrimary.answeringDisconnectsForegroundVideoCall(),
-              shouldShowLocation(),
-              mPrimaryContactInfo.lookupKey,
-              multimediaData,
-              mPrimary.getNumberPresentation()));
+      boolean isWorkContact = (primaryContactInfo.userType == ContactsUtils.USER_TYPE_WORK);
+      inCallScreen.setPrimary(
+          PrimaryInfo.builder()
+              .setNumber(number)
+              .setName(primary.updateNameIfRestricted(name))
+              .setNameIsNumber(nameIsNumber)
+              .setLocation(
+                  shouldShowLocationAsLabel(nameIsNumber, primaryContactInfo.shouldShowLocation)
+                      ? primaryContactInfo.location
+                      : null)
+              .setLabel(isChildNumberShown || isCallSubjectShown ? null : primaryContactInfo.label)
+              .setPhoto(primaryContactInfo.photo)
+              .setPhotoUri(primaryContactInfo.displayPhotoUri)
+              .setPhotoType(primaryContactInfo.photoType)
+              .setIsSipCall(primaryContactInfo.isSipCall)
+              .setIsContactPhotoShown(showContactPhoto)
+              .setIsWorkCall(hasWorkCallProperty || isWorkContact)
+              .setIsSpam(primary.isSpam())
+              .setIsLocalContact(primaryContactInfo.isLocalContact())
+              .setAnsweringDisconnectsOngoingCall(primary.answeringDisconnectsForegroundVideoCall())
+              .setShouldShowLocation(shouldShowLocation())
+              .setContactInfoLookupKey(primaryContactInfo.lookupKey)
+              .setMultimediaData(multimediaData)
+              .setShowInCallButtonGrid(true)
+              .setNumberPresentation(primary.getNumberPresentation())
+              .build());
     } else {
       // Clear the primary display info.
-      mInCallScreen.setPrimary(PrimaryInfo.createEmptyPrimaryInfo());
+      inCallScreen.setPrimary(PrimaryInfo.empty());
     }
 
     if (isInCallScreenReady) {
-      mInCallScreen.showLocationUi(getLocationFragment());
+      inCallScreen.showLocationUi(getLocationFragment());
     } else {
       LogUtil.i("CallCardPresenter.updatePrimaryDisplayInfo", "UI not ready, not showing location");
     }
@@ -813,47 +796,55 @@ public class CallCardPresenter
   }
 
   private Fragment getLocationFragment() {
-    if (!ConfigProviderBindings.get(mContext)
-        .getBoolean(CONFIG_ENABLE_EMERGENCY_LOCATION, CONFIG_ENABLE_EMERGENCY_LOCATION_DEFAULT)) {
-      LogUtil.i("CallCardPresenter.getLocationFragment", "disabled by config.");
-      return null;
-    }
     if (!shouldShowLocation()) {
-      LogUtil.i("CallCardPresenter.getLocationFragment", "shouldn't show location");
-      return null;
-    }
-    if (!hasLocationPermission()) {
-      LogUtil.i("CallCardPresenter.getLocationFragment", "no location permission.");
-      return null;
-    }
-    if (isBatteryTooLowForEmergencyLocation()) {
-      LogUtil.i("CallCardPresenter.getLocationFragment", "low battery.");
-      return null;
-    }
-    if (ActivityCompat.isInMultiWindowMode(mInCallScreen.getInCallScreenFragment().getActivity())) {
-      LogUtil.i("CallCardPresenter.getLocationFragment", "in multi-window mode");
-      return null;
-    }
-    if (mPrimary.isVideoCall()) {
-      LogUtil.i("CallCardPresenter.getLocationFragment", "emergency video calls not supported");
-      return null;
-    }
-    if (!callLocation.canGetLocation(mContext)) {
-      LogUtil.i("CallCardPresenter.getLocationFragment", "can't get current location");
       return null;
     }
     LogUtil.i("CallCardPresenter.getLocationFragment", "returning location fragment");
-    return callLocation.getLocationFragment(mContext);
+    return callLocation.getLocationFragment(context);
   }
 
   private boolean shouldShowLocation() {
-    if (isOutgoingEmergencyCall(mPrimary)) {
+    if (!ConfigProviderComponent.get(context)
+        .getConfigProvider()
+        .getBoolean(CONFIG_ENABLE_EMERGENCY_LOCATION, CONFIG_ENABLE_EMERGENCY_LOCATION_DEFAULT)) {
+      LogUtil.i("CallCardPresenter.getLocationFragment", "disabled by config.");
+      return false;
+    }
+    if (!isPotentialEmergencyCall()) {
+      LogUtil.i("CallCardPresenter.getLocationFragment", "shouldn't show location");
+      return false;
+    }
+    if (!hasLocationPermission()) {
+      LogUtil.i("CallCardPresenter.getLocationFragment", "no location permission.");
+      return false;
+    }
+    if (isBatteryTooLowForEmergencyLocation()) {
+      LogUtil.i("CallCardPresenter.getLocationFragment", "low battery.");
+      return false;
+    }
+    if (inCallScreen.getInCallScreenFragment().getActivity().isInMultiWindowMode()) {
+      LogUtil.i("CallCardPresenter.getLocationFragment", "in multi-window mode");
+      return false;
+    }
+    if (primary.isVideoCall()) {
+      LogUtil.i("CallCardPresenter.getLocationFragment", "emergency video calls not supported");
+      return false;
+    }
+    if (!callLocation.canGetLocation(context)) {
+      LogUtil.i("CallCardPresenter.getLocationFragment", "can't get current location");
+      return false;
+    }
+    return true;
+  }
+
+  private boolean isPotentialEmergencyCall() {
+    if (isOutgoingEmergencyCall(primary)) {
       LogUtil.i("CallCardPresenter.shouldShowLocation", "new emergency call");
       return true;
-    } else if (isIncomingEmergencyCall(mPrimary)) {
+    } else if (isIncomingEmergencyCall(primary)) {
       LogUtil.i("CallCardPresenter.shouldShowLocation", "potential emergency callback");
       return true;
-    } else if (isIncomingEmergencyCall(mSecondary)) {
+    } else if (isIncomingEmergencyCall(secondary)) {
       LogUtil.i("CallCardPresenter.shouldShowLocation", "has potential emergency callback");
       return true;
     }
@@ -869,13 +860,13 @@ public class CallCardPresenter
   }
 
   private boolean hasLocationPermission() {
-    return ContextCompat.checkSelfPermission(mContext, Manifest.permission.ACCESS_FINE_LOCATION)
+    return ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
         == PackageManager.PERMISSION_GRANTED;
   }
 
   private boolean isBatteryTooLowForEmergencyLocation() {
     Intent batteryStatus =
-        mContext.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        context.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
     int status = batteryStatus.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
     if (status == BatteryManager.BATTERY_STATUS_CHARGING
         || status == BatteryManager.BATTERY_STATUS_FULL) {
@@ -886,7 +877,8 @@ public class CallCardPresenter
     int scale = batteryStatus.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
     float batteryPercent = (100f * level) / scale;
     long threshold =
-        ConfigProviderBindings.get(mContext)
+        ConfigProviderComponent.get(context)
+            .getConfigProvider()
             .getLong(
                 CONFIG_MIN_BATTERY_PERCENT_FOR_EMERGENCY_LOCATION,
                 CONFIG_MIN_BATTERY_PERCENT_FOR_EMERGENCY_LOCATION_DEFAULT);
@@ -897,60 +889,60 @@ public class CallCardPresenter
   }
 
   private void updateSecondaryDisplayInfo() {
-    if (mInCallScreen == null) {
+    if (inCallScreen == null) {
       return;
     }
 
-    if (mSecondary == null) {
+    if (secondary == null) {
       // Clear the secondary display info.
-      mInCallScreen.setSecondary(SecondaryInfo.createEmptySecondaryInfo(mIsFullscreen));
+      inCallScreen.setSecondary(SecondaryInfo.builder().setIsFullscreen(isFullscreen).build());
       return;
     }
 
-    if (mSecondary.isMergeInProcess()) {
+    if (secondary.isMergeInProcess()) {
       LogUtil.i(
           "CallCardPresenter.updateSecondaryDisplayInfo",
           "secondary call is merge in process, clearing info");
-      mInCallScreen.setSecondary(SecondaryInfo.createEmptySecondaryInfo(mIsFullscreen));
+      inCallScreen.setSecondary(SecondaryInfo.builder().setIsFullscreen(isFullscreen).build());
       return;
     }
 
-    if (mSecondary.isConferenceCall()) {
-      mInCallScreen.setSecondary(
-          new SecondaryInfo(
-              true /* show */,
-              CallerInfoUtils.getConferenceString(
-                  mContext, mSecondary.hasProperty(Details.PROPERTY_GENERIC_CONFERENCE)),
-              false /* nameIsNumber */,
-              null /* label */,
-              mSecondary.getCallProviderLabel(),
-              true /* isConference */,
-              mSecondary.isVideoCall(),
-              mIsFullscreen));
-    } else if (mSecondaryContactInfo != null) {
-      LogUtil.v("CallCardPresenter.updateSecondaryDisplayInfo", "" + mSecondaryContactInfo);
-      String name = getNameForCall(mSecondaryContactInfo);
-      boolean nameIsNumber = name != null && name.equals(mSecondaryContactInfo.number);
-      mInCallScreen.setSecondary(
-          new SecondaryInfo(
-              true /* show */,
-              mSecondary.updateNameIfRestricted(name),
-              nameIsNumber,
-              mSecondaryContactInfo.label,
-              mSecondary.getCallProviderLabel(),
-              false /* isConference */,
-              mSecondary.isVideoCall(),
-              mIsFullscreen));
+    if (secondary.isConferenceCall()) {
+      inCallScreen.setSecondary(
+          SecondaryInfo.builder()
+              .setShouldShow(true)
+              .setName(
+                  CallerInfoUtils.getConferenceString(
+                      context, secondary.hasProperty(Details.PROPERTY_GENERIC_CONFERENCE)))
+              .setProviderLabel(secondary.getCallProviderLabel())
+              .setIsConference(true)
+              .setIsVideoCall(secondary.isVideoCall())
+              .setIsFullscreen(isFullscreen)
+              .build());
+    } else if (secondaryContactInfo != null) {
+      LogUtil.v("CallCardPresenter.updateSecondaryDisplayInfo", "" + secondaryContactInfo);
+      String name = getNameForCall(secondaryContactInfo);
+      boolean nameIsNumber = name != null && name.equals(secondaryContactInfo.number);
+      inCallScreen.setSecondary(
+          SecondaryInfo.builder()
+              .setShouldShow(true)
+              .setName(secondary.updateNameIfRestricted(name))
+              .setNameIsNumber(nameIsNumber)
+              .setLabel(secondaryContactInfo.label)
+              .setProviderLabel(secondary.getCallProviderLabel())
+              .setIsVideoCall(secondary.isVideoCall())
+              .setIsFullscreen(isFullscreen)
+              .build());
     } else {
       // Clear the secondary display info.
-      mInCallScreen.setSecondary(SecondaryInfo.createEmptySecondaryInfo(mIsFullscreen));
+      inCallScreen.setSecondary(SecondaryInfo.builder().setIsFullscreen(isFullscreen).build());
     }
   }
 
   /** Returns the gateway number for any existing outgoing call. */
   private String getGatewayNumber() {
     if (hasOutgoingGatewayCall()) {
-      return DialerCall.getNumberFromHandle(mPrimary.getGatewayInfo().getGatewayAddress());
+      return DialerCall.getNumberFromHandle(primary.getGatewayInfo().getGatewayAddress());
     }
     return null;
   }
@@ -960,41 +952,56 @@ public class CallCardPresenter
    * "calling via [Account/Google Voice]" for outgoing calls.
    */
   private String getConnectionLabel() {
-    if (ContextCompat.checkSelfPermission(mContext, Manifest.permission.READ_PHONE_STATE)
+    if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE)
         != PackageManager.PERMISSION_GRANTED) {
       return null;
     }
-    StatusHints statusHints = mPrimary.getStatusHints();
+    StatusHints statusHints = primary.getStatusHints();
     if (statusHints != null && !TextUtils.isEmpty(statusHints.getLabel())) {
       return statusHints.getLabel().toString();
     }
 
     if (hasOutgoingGatewayCall() && getUi() != null) {
       // Return the label for the gateway app on outgoing calls.
-      final PackageManager pm = mContext.getPackageManager();
+      final PackageManager pm = context.getPackageManager();
       try {
         ApplicationInfo info =
-            pm.getApplicationInfo(mPrimary.getGatewayInfo().getGatewayProviderPackageName(), 0);
+            pm.getApplicationInfo(primary.getGatewayInfo().getGatewayProviderPackageName(), 0);
         return pm.getApplicationLabel(info).toString();
       } catch (PackageManager.NameNotFoundException e) {
         LogUtil.e("CallCardPresenter.getConnectionLabel", "gateway Application Not Found.", e);
         return null;
       }
     }
-    return mPrimary.getCallProviderLabel();
+    return primary.getCallProviderLabel();
+  }
+
+  @Nullable
+  private SuggestionProvider.Reason getSimSuggestionReason() {
+    String value =
+        primary.getIntentExtras().getString(SuggestionProvider.EXTRA_SIM_SUGGESTION_REASON);
+    if (value == null) {
+      return null;
+    }
+    try {
+      return SuggestionProvider.Reason.valueOf(value);
+    } catch (IllegalArgumentException e) {
+      LogUtil.e("CallCardPresenter.getConnectionLabel", "unknown reason " + value);
+      return null;
+    }
   }
 
   private Drawable getCallStateIcon() {
     // Return connection icon if one exists.
-    StatusHints statusHints = mPrimary.getStatusHints();
+    StatusHints statusHints = primary.getStatusHints();
     if (statusHints != null && statusHints.getIcon() != null) {
-      Drawable icon = statusHints.getIcon().loadDrawable(mContext);
+      Drawable icon = statusHints.getIcon().loadDrawable(context);
       if (icon != null) {
         return icon;
       }
     }
 
-    return mPrimary.getCallProviderIcon();
+    return primary.getCallProviderIcon();
   }
 
   private boolean hasOutgoingGatewayCall() {
@@ -1003,45 +1010,55 @@ public class CallCardPresenter
     // TODO: mPrimary can be null because this is called from updatePrimaryDisplayInfo which
     // is also called after a contact search completes (call is not present yet).  Split the
     // UI update so it can receive independent updates.
-    if (mPrimary == null) {
+    if (primary == null) {
       return false;
     }
-    return DialerCall.State.isDialing(mPrimary.getState())
-        && mPrimary.getGatewayInfo() != null
-        && !mPrimary.getGatewayInfo().isEmpty();
+    return DialerCallState.isDialing(primary.getState())
+        && primary.getGatewayInfo() != null
+        && !primary.getGatewayInfo().isEmpty();
   }
 
   /** Gets the name to display for the call. */
   private String getNameForCall(ContactCacheEntry contactInfo) {
     String preferredName =
-        ContactDisplayUtils.getPreferredDisplayName(
-            contactInfo.namePrimary, contactInfo.nameAlternative, mContactsPreferences);
+        ContactsComponent.get(context)
+            .contactDisplayPreferences()
+            .getDisplayName(contactInfo.namePrimary, contactInfo.nameAlternative);
     if (TextUtils.isEmpty(preferredName)) {
-      return contactInfo.number;
+      return TextUtils.isEmpty(contactInfo.number)
+          ? null
+          : BidiFormatter.getInstance()
+              .unicodeWrap(contactInfo.number, TextDirectionHeuristics.LTR);
     }
     return preferredName;
   }
 
   @Override
   public void onSecondaryInfoClicked() {
-    if (mSecondary == null) {
+    if (secondary == null) {
       LogUtil.e(
           "CallCardPresenter.onSecondaryInfoClicked",
           "secondary info clicked but no secondary call.");
       return;
     }
 
+    Logger.get(context)
+        .logCallImpression(
+            DialerImpression.Type.IN_CALL_SWAP_SECONDARY_BUTTON_PRESSED,
+            primary.getUniqueCallId(),
+            primary.getTimeAddedMs());
     LogUtil.i(
-        "CallCardPresenter.onSecondaryInfoClicked", "swapping call to foreground: " + mSecondary);
-    mSecondary.unhold();
+        "CallCardPresenter.onSecondaryInfoClicked", "swapping call to foreground: " + secondary);
+    secondary.unhold();
   }
 
   @Override
   public void onEndCallClicked() {
-    LogUtil.i("CallCardPresenter.onEndCallClicked", "disconnecting call: " + mPrimary);
-    if (mPrimary != null) {
-      mPrimary.disconnect();
+    LogUtil.i("CallCardPresenter.onEndCallClicked", "disconnecting call: " + primary);
+    if (primary != null) {
+      primary.disconnect();
     }
+    PostCall.onDisconnectPressed(context);
   }
 
   /**
@@ -1051,8 +1068,8 @@ public class CallCardPresenter
    */
   @Override
   public void onFullscreenModeChanged(boolean isFullscreenMode) {
-    mIsFullscreen = isFullscreenMode;
-    if (mInCallScreen == null) {
+    isFullscreen = isFullscreenMode;
+    if (inCallScreen == null) {
       return;
     }
     maybeShowManageConferenceCallButton();
@@ -1063,8 +1080,13 @@ public class CallCardPresenter
     //No-op
   }
 
+  @Override
+  public void onOutgoingVideoSourceChanged(int videoSource) {
+    //No-op
+  }
+
   private boolean isPrimaryCallActive() {
-    return mPrimary != null && mPrimary.getState() == DialerCall.State.ACTIVE;
+    return primary != null && primary.getState() == DialerCallState.ACTIVE;
   }
 
   @Override
@@ -1072,26 +1094,17 @@ public class CallCardPresenter
    //No-op
   }
 
-  private String getConferenceString(DialerCall call) {
-    boolean isGenericConference = call.hasProperty(Details.PROPERTY_GENERIC_CONFERENCE);
-    LogUtil.v("CallCardPresenter.getConferenceString", "" + isGenericConference);
-
-    final int resId =
-        isGenericConference ? R.string.generic_conference_call_name : R.string.conference_call_name;
-    return mContext.getResources().getString(resId);
-  }
-
   private boolean shouldShowEndCallButton(DialerCall primary, int callState) {
     if (primary == null) {
       return false;
     }
-    if ((!DialerCall.State.isConnectingOrConnected(callState)
-            && callState != DialerCall.State.DISCONNECTING
-            && callState != DialerCall.State.DISCONNECTED)
-        || callState == DialerCall.State.INCOMING) {
+    if ((!DialerCallState.isConnectingOrConnected(callState)
+            && callState != DialerCallState.DISCONNECTING
+            && callState != DialerCallState.DISCONNECTED)
+        || callState == DialerCallState.INCOMING) {
       return false;
     }
-    if (mPrimary.getVideoTech().getSessionModificationState()
+    if (this.primary.getVideoTech().getSessionModificationState()
         == SessionModificationState.RECEIVED_UPGRADE_TO_VIDEO_REQUEST) {
       return false;
     }
@@ -1146,10 +1159,12 @@ public class CallCardPresenter
   private void maybeSendAccessibilityEvent(
       InCallState oldState, final InCallState newState, boolean primaryChanged) {
     shouldSendAccessibilityEvent = false;
-    if (mContext == null) {
+    if (context == null) {
       return;
     }
-    if (!accessibilityManager.isEnabled()) {
+    final AccessibilityManager am =
+        (AccessibilityManager) context.getSystemService(Context.ACCESSIBILITY_SERVICE);
+    if (!am.isEnabled()) {
       return;
     }
     // Announce the current call if it's new incoming/outgoing call or primary call is changed
@@ -1177,8 +1192,8 @@ public class CallCardPresenter
     }
 
     boolean isIncomingOrWaiting =
-        mPrimary.getState() == DialerCall.State.INCOMING
-            || mPrimary.getState() == DialerCall.State.CALL_WAITING;
+        primary.getState() == DialerCallState.INCOMING
+            || primary.getState() == DialerCallState.CALL_WAITING;
     return isIncomingOrWaiting
         && !TextUtils.isEmpty(call.getCallSubject())
         && call.getNumberPresentation() == TelecomManager.PRESENTATION_ALLOWED
@@ -1195,35 +1210,36 @@ public class CallCardPresenter
   private boolean shouldShowNoteSentToast(DialerCall call) {
     return call != null
         && hasCallSubject(call)
-        && (call.getState() == DialerCall.State.DIALING
-            || call.getState() == DialerCall.State.CONNECTING);
+        && (call.getState() == DialerCallState.DIALING
+            || call.getState() == DialerCallState.CONNECTING);
   }
 
   private InCallScreen getUi() {
-    return mInCallScreen;
+    return inCallScreen;
   }
 
+  /** Callback for contact lookup. */
   public static class ContactLookupCallback implements ContactInfoCacheCallback {
 
-    private final WeakReference<CallCardPresenter> mCallCardPresenter;
-    private final boolean mIsPrimary;
+    private final WeakReference<CallCardPresenter> callCardPresenter;
+    private final boolean isPrimary;
 
     public ContactLookupCallback(CallCardPresenter callCardPresenter, boolean isPrimary) {
-      mCallCardPresenter = new WeakReference<CallCardPresenter>(callCardPresenter);
-      mIsPrimary = isPrimary;
+      this.callCardPresenter = new WeakReference<CallCardPresenter>(callCardPresenter);
+      this.isPrimary = isPrimary;
     }
 
     @Override
     public void onContactInfoComplete(String callId, ContactCacheEntry entry) {
-      CallCardPresenter presenter = mCallCardPresenter.get();
+      CallCardPresenter presenter = callCardPresenter.get();
       if (presenter != null) {
-        presenter.onContactInfoComplete(callId, entry, mIsPrimary);
+        presenter.onContactInfoComplete(callId, entry, isPrimary);
       }
     }
 
     @Override
     public void onImageLoadComplete(String callId, ContactCacheEntry entry) {
-      CallCardPresenter presenter = mCallCardPresenter.get();
+      CallCardPresenter presenter = callCardPresenter.get();
       if (presenter != null) {
         presenter.onImageLoadComplete(callId, entry);
       }

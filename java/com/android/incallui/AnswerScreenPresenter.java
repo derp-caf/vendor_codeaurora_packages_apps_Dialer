@@ -24,6 +24,7 @@ import android.support.v4.os.UserManagerCompat;
 import android.telecom.VideoProfile;
 import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
+import com.android.dialer.common.concurrent.DialerExecutorComponent;
 import com.android.dialer.common.concurrent.ThreadUtil;
 import com.android.dialer.logging.DialerImpression;
 import com.android.dialer.logging.Logger;
@@ -34,13 +35,18 @@ import com.android.incallui.answerproximitysensor.PseudoScreenState;
 import com.android.incallui.call.CallList;
 import com.android.incallui.call.DialerCall;
 import com.android.incallui.call.DialerCallListener;
+import com.android.incallui.incalluilock.InCallUiLock;
 import com.android.incallui.InCallPresenter.InCallDetailsListener;
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
 
 /** Manages changes for an incoming call screen. */
 public class AnswerScreenPresenter
     implements AnswerScreenDelegate, DialerCall.CannedTextResponsesLoadedListener,
-    InCallDetailsListener { 
+    InCallDetailsListener {
   private static final int ACCEPT_REJECT_CALL_TIME_OUT_IN_MILLIS = 5000;
+
   @NonNull private final Context context;
   @NonNull private final AnswerScreen answerScreen;
   @NonNull private final DialerCall call;
@@ -74,25 +80,57 @@ public class AnswerScreenPresenter
   }
 
   @Override
+  public InCallUiLock acquireInCallUiLock(String tag) {
+    return InCallPresenter.getInstance().acquireInCallUiLock(tag);
+  }
+
+  @Override
   public void onAnswerScreenUnready() {
     call.removeCannedTextResponsesLoadedListener(this);
     InCallPresenter.getInstance().removeDetailsListener(this);
   }
 
   @Override
-  public void onDismissDialog() {
-    InCallPresenter.getInstance().onDismissDialog();
-  }
-
-  @Override
   public void onRejectCallWithMessage(String message) {
     call.reject(true /* rejectWithMessage */, message);
-    onDismissDialog();
     addTimeoutCheck();
   }
 
   @Override
   public void onAnswer(boolean answerVideoAsAudio) {
+
+    DialerCall incomingCall = CallList.getInstance().getIncomingCall();
+    InCallActivity inCallActivity =
+        (InCallActivity) answerScreen.getAnswerScreenFragment().getActivity();
+    ListenableFuture<Void> answerPrecondition;
+
+    if (incomingCall != null && inCallActivity != null) {
+      answerPrecondition = inCallActivity.getSpeakEasyCallManager().onNewIncomingCall(incomingCall);
+    } else {
+      answerPrecondition = Futures.immediateFuture(null);
+    }
+
+    Futures.addCallback(
+        answerPrecondition,
+        new FutureCallback<Void>() {
+          @Override
+          public void onSuccess(Void result) {
+            onAnswerCallback(answerVideoAsAudio);
+          }
+
+          @Override
+          public void onFailure(Throwable t) {
+            onAnswerCallback(answerVideoAsAudio);
+            // TODO(erfanian): Enumerate all error states and specify recovery strategies.
+            throw new RuntimeException("Failed to successfully complete pre call tasks.", t);
+          }
+        },
+        DialerExecutorComponent.get(context).uiExecutor());
+    addTimeoutCheck();
+  }
+
+  private void onAnswerCallback(boolean answerVideoAsAudio) {
+
     if (answerScreen.isVideoUpgradeRequest()) {
       if (answerVideoAsAudio) {
         Logger.get(context)
@@ -107,7 +145,7 @@ public class AnswerScreenPresenter
                 DialerImpression.Type.VIDEO_CALL_REQUEST_ACCEPTED,
                 call.getUniqueCallId(),
                 call.getTimeAddedMs());
-        call.getVideoTech().acceptVideoRequest();
+        call.getVideoTech().acceptVideoRequest(context);
       }
     } else {
       if (answerVideoAsAudio) {
@@ -116,7 +154,6 @@ public class AnswerScreenPresenter
         call.answer();
       }
     }
-    addTimeoutCheck();
   }
 
   @Override
@@ -132,6 +169,17 @@ public class AnswerScreenPresenter
       call.reject(false /* rejectWithMessage */, null);
     }
     addTimeoutCheck();
+  }
+
+  @Override
+  public void onSpeakEasyCall() {
+    LogUtil.enterBlock("AnswerScreenPresenter.onSpeakEasyCall");
+    DialerCall incomingCall = CallList.getInstance().getIncomingCall();
+    if (incomingCall == null) {
+      LogUtil.i("AnswerScreenPresenter.onSpeakEasyCall", "incomingCall == null");
+      return;
+    }
+    incomingCall.setIsSpeakEasyCall(true);
   }
 
   @Override

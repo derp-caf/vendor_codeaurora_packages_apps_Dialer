@@ -19,13 +19,14 @@ package com.android.dialer.dialpadview;
 import android.content.Context;
 import android.graphics.RectF;
 import android.os.Bundle;
+import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.ViewConfiguration;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityManager;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction;
 import android.widget.FrameLayout;
 
 /**
@@ -45,34 +46,22 @@ import android.widget.FrameLayout;
  */
 public class DialpadKeyButton extends FrameLayout {
 
-  /** Timeout before switching to long-click accessibility mode. */
-  private static final int LONG_HOVER_TIMEOUT = ViewConfiguration.getLongPressTimeout() * 2;
-
   /** Accessibility manager instance used to check touch exploration state. */
-  private AccessibilityManager mAccessibilityManager;
+  private AccessibilityManager accessibilityManager;
 
   /** Bounds used to filter HOVER_EXIT events. */
-  private RectF mHoverBounds = new RectF();
-
-  /** Whether this view is currently in the long-hover state. */
-  private boolean mLongHovered;
+  private RectF hoverBounds = new RectF();
 
   /** Alternate content description for long-hover state. */
-  private CharSequence mLongHoverContentDesc;
-
-  /** Backup of standard content description. Used for accessibility. */
-  private CharSequence mBackupContentDesc;
+  private CharSequence longHoverContentDesc;
 
   /** Backup of clickable property. Used for accessibility. */
-  private boolean mWasClickable;
+  private boolean wasClickable;
 
   /** Backup of long-clickable property. Used for accessibility. */
-  private boolean mWasLongClickable;
+  private boolean wasLongClickable;
 
-  /** Runnable used to trigger long-click mode for accessibility. */
-  private Runnable mLongHoverRunnable;
-
-  private OnPressedListener mOnPressedListener;
+  private OnPressedListener onPressedListener;
 
   public DialpadKeyButton(Context context, AttributeSet attrs) {
     super(context, attrs);
@@ -85,36 +74,23 @@ public class DialpadKeyButton extends FrameLayout {
   }
 
   public void setOnPressedListener(OnPressedListener onPressedListener) {
-    mOnPressedListener = onPressedListener;
+    this.onPressedListener = onPressedListener;
   }
 
   private void initForAccessibility(Context context) {
-    mAccessibilityManager =
+    accessibilityManager =
         (AccessibilityManager) context.getSystemService(Context.ACCESSIBILITY_SERVICE);
   }
 
   public void setLongHoverContentDescription(CharSequence contentDescription) {
-    mLongHoverContentDesc = contentDescription;
-
-    if (mLongHovered) {
-      super.setContentDescription(mLongHoverContentDesc);
-    }
-  }
-
-  @Override
-  public void setContentDescription(CharSequence contentDescription) {
-    if (mLongHovered) {
-      mBackupContentDesc = contentDescription;
-    } else {
-      super.setContentDescription(contentDescription);
-    }
+    longHoverContentDesc = contentDescription;
   }
 
   @Override
   public void setPressed(boolean pressed) {
     super.setPressed(pressed);
-    if (mOnPressedListener != null) {
-      mOnPressedListener.onPressed(this, pressed);
+    if (onPressedListener != null) {
+      onPressedListener.onPressed(this, pressed);
     }
   }
 
@@ -122,10 +98,10 @@ public class DialpadKeyButton extends FrameLayout {
   public void onSizeChanged(int w, int h, int oldw, int oldh) {
     super.onSizeChanged(w, h, oldw, oldh);
 
-    mHoverBounds.left = getPaddingLeft();
-    mHoverBounds.right = w - getPaddingRight();
-    mHoverBounds.top = getPaddingTop();
-    mHoverBounds.bottom = h - getPaddingBottom();
+    hoverBounds.left = getPaddingLeft();
+    hoverBounds.right = w - getPaddingRight();
+    hoverBounds.top = getPaddingTop();
+    hoverBounds.bottom = h - getPaddingBottom();
   }
 
   @Override
@@ -139,44 +115,39 @@ public class DialpadKeyButton extends FrameLayout {
   }
 
   @Override
+  public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
+    super.onInitializeAccessibilityNodeInfo(info);
+    // If the button has a long hover description, ask talkback to announce the action follow by
+    // the description (for example "double tap and hold to call voicemail").
+    if (!TextUtils.isEmpty(longHoverContentDesc)) {
+      AccessibilityAction longClickAction =
+          new AccessibilityAction(AccessibilityNodeInfo.ACTION_LONG_CLICK, longHoverContentDesc);
+      info.addAction(longClickAction);
+    }
+  }
+
+  @Override
   public boolean onHoverEvent(MotionEvent event) {
     // When touch exploration is turned on, lifting a finger while inside
     // the button's hover target bounds should perform a click action.
-    if (mAccessibilityManager.isEnabled() && mAccessibilityManager.isTouchExplorationEnabled()) {
+    if (accessibilityManager.isEnabled() && accessibilityManager.isTouchExplorationEnabled()) {
       switch (event.getActionMasked()) {
         case MotionEvent.ACTION_HOVER_ENTER:
           // Lift-to-type temporarily disables double-tap activation.
-          mWasClickable = isClickable();
-          mWasLongClickable = isLongClickable();
-          if (mWasLongClickable && mLongHoverContentDesc != null) {
-            if (mLongHoverRunnable == null) {
-              mLongHoverRunnable =
-                  new Runnable() {
-                    @Override
-                    public void run() {
-                      setLongHovered(true);
-                      announceForAccessibility(mLongHoverContentDesc);
-                    }
-                  };
-            }
-            postDelayed(mLongHoverRunnable, LONG_HOVER_TIMEOUT);
-          }
-
+          wasClickable = isClickable();
+          wasLongClickable = isLongClickable();
           setClickable(false);
           setLongClickable(false);
           break;
         case MotionEvent.ACTION_HOVER_EXIT:
-          if (mHoverBounds.contains(event.getX(), event.getY())) {
-            if (mLongHovered) {
-              performLongClick();
-            } else {
-              simulateClickForAccessibility();
-            }
+          if (hoverBounds.contains(event.getX(), event.getY())) {
+            simulateClickForAccessibility();
           }
 
-          cancelLongHover();
-          setClickable(mWasClickable);
-          setLongClickable(mWasLongClickable);
+          setClickable(wasClickable);
+          setLongClickable(wasLongClickable);
+          break;
+        default: // No-op
           break;
       }
     }
@@ -201,27 +172,6 @@ public class DialpadKeyButton extends FrameLayout {
     sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_CLICKED);
 
     setPressed(false);
-  }
-
-  private void setLongHovered(boolean enabled) {
-    if (mLongHovered != enabled) {
-      mLongHovered = enabled;
-
-      // Switch between normal and alternate description, if available.
-      if (enabled) {
-        mBackupContentDesc = getContentDescription();
-        super.setContentDescription(mLongHoverContentDesc);
-      } else {
-        super.setContentDescription(mBackupContentDesc);
-      }
-    }
-  }
-
-  private void cancelLongHover() {
-    if (mLongHoverRunnable != null) {
-      removeCallbacks(mLongHoverRunnable);
-    }
-    setLongHovered(false);
   }
 
   public interface OnPressedListener {

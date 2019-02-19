@@ -25,36 +25,35 @@ import android.widget.ImageButton;
 import android.widget.TextView;
 import com.android.contacts.common.list.ContactEntry;
 import com.android.dialer.app.R;
-import com.android.dialer.compat.CompatUtils;
 import com.android.dialer.logging.InteractionEvent;
 import com.android.dialer.logging.Logger;
+import com.android.dialer.widget.BidiTextView;
 
 /** Displays the contact's picture overlaid with their name and number type in a tile. */
 public class PhoneFavoriteSquareTileView extends PhoneFavoriteTileView {
 
-  private static final String TAG = PhoneFavoriteSquareTileView.class.getSimpleName();
+  private final float heightToWidthRatio;
 
-  private final float mHeightToWidthRatio;
+  private ImageButton secondaryButton;
 
-  private ImageButton mSecondaryButton;
-
-  private ContactEntry mContactEntry;
+  private ContactEntry contactEntry;
 
   public PhoneFavoriteSquareTileView(Context context, AttributeSet attrs) {
     super(context, attrs);
 
-    mHeightToWidthRatio =
+    heightToWidthRatio =
         getResources().getFraction(R.dimen.contact_tile_height_to_width_ratio, 1, 1);
   }
 
   @Override
   protected void onFinishInflate() {
     super.onFinishInflate();
-    final TextView nameView = (TextView) findViewById(R.id.contact_tile_name);
+    BidiTextView nameView = findViewById(R.id.contact_tile_name);
     nameView.setElegantTextHeight(false);
-    final TextView phoneTypeView = (TextView) findViewById(R.id.contact_tile_phone_type);
+
+    TextView phoneTypeView = findViewById(R.id.contact_tile_phone_type);
     phoneTypeView.setElegantTextHeight(false);
-    mSecondaryButton = (ImageButton) findViewById(R.id.contact_tile_secondary_button);
+    secondaryButton = findViewById(R.id.contact_tile_secondary_button);
   }
 
   @Override
@@ -64,28 +63,19 @@ public class PhoneFavoriteSquareTileView extends PhoneFavoriteTileView {
   }
 
   private void launchQuickContact() {
-    if (CompatUtils.hasPrioritizedMimeType()) {
-      QuickContact.showQuickContact(
-          getContext(),
-          PhoneFavoriteSquareTileView.this,
-          getLookupUri(),
-          null,
-          Phone.CONTENT_ITEM_TYPE);
-    } else {
-      QuickContact.showQuickContact(
-          getContext(),
-          PhoneFavoriteSquareTileView.this,
-          getLookupUri(),
-          QuickContact.MODE_LARGE,
-          null);
-    }
+    QuickContact.showQuickContact(
+        getContext(),
+        PhoneFavoriteSquareTileView.this,
+        getLookupUri(),
+        null,
+        Phone.CONTENT_ITEM_TYPE);
   }
 
   @Override
   public void loadFromContact(ContactEntry entry) {
     super.loadFromContact(entry);
     if (entry != null) {
-      mSecondaryButton.setOnClickListener(
+      secondaryButton.setOnClickListener(
           new OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -95,13 +85,13 @@ public class PhoneFavoriteSquareTileView extends PhoneFavoriteTileView {
             }
           });
     }
-    mContactEntry = entry;
+    contactEntry = entry;
   }
 
   @Override
   protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
     final int width = MeasureSpec.getSize(widthMeasureSpec);
-    final int height = (int) (mHeightToWidthRatio * width);
+    final int height = (int) (heightToWidthRatio * width);
     final int count = getChildCount();
     for (int i = 0; i < count; i++) {
       getChildAt(i)
@@ -114,10 +104,10 @@ public class PhoneFavoriteSquareTileView extends PhoneFavoriteTileView {
 
   @Override
   protected String getNameForView(ContactEntry contactEntry) {
-    return contactEntry.getPreferredDisplayName();
+    return contactEntry.getPreferredDisplayName(getContext());
   }
 
   public ContactEntry getContactEntry() {
-    return mContactEntry;
+    return contactEntry;
   }
 }

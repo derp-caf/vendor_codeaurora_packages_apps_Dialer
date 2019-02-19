@@ -31,7 +31,7 @@ import android.text.Html;
 import android.text.Spanned;
 import android.text.style.URLSpan;
 import android.util.ArrayMap;
-import com.android.dialer.configprovider.ConfigProviderBindings;
+import com.android.dialer.configprovider.ConfigProviderComponent;
 import com.android.voicemail.impl.ActivationTask;
 import com.android.voicemail.impl.Assert;
 import com.android.voicemail.impl.OmtpEvents;
@@ -89,7 +89,7 @@ public class Vvm3Subscriber {
   private static final String OPERATION_GET_SPG_URL = "retrieveSPGURL";
   private static final String SPG_URL_TAG = "spgurl";
   private static final String TRANSACTION_ID_TAG = "transactionid";
-  //language=XML
+  // language=XML
   private static final String VMG_XML_REQUEST_FORMAT =
       ""
           + "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
@@ -131,15 +131,15 @@ public class Vvm3Subscriber {
 
   private static final int REQUEST_TIMEOUT_SECONDS = 30;
 
-  private final ActivationTask mTask;
-  private final PhoneAccountHandle mHandle;
-  private final OmtpVvmCarrierConfigHelper mHelper;
-  private final VoicemailStatus.Editor mStatus;
-  private final Bundle mData;
+  private final ActivationTask task;
+  private final PhoneAccountHandle handle;
+  private final OmtpVvmCarrierConfigHelper helper;
+  private final VoicemailStatus.Editor status;
+  private final Bundle data;
 
-  private final String mNumber;
+  private final String number;
 
-  private RequestQueue mRequestQueue;
+  private RequestQueue requestQueue;
 
   @VisibleForTesting
   static class ProvisioningException extends Exception {
@@ -159,6 +159,7 @@ public class Vvm3Subscriber {
   }
 
   @WorkerThread
+  @SuppressWarnings("missingPermission")
   public Vvm3Subscriber(
       ActivationTask task,
       PhoneAccountHandle handle,
@@ -166,20 +167,32 @@ public class Vvm3Subscriber {
       VoicemailStatus.Editor status,
       Bundle data) {
     Assert.isNotMainThread();
-    mTask = task;
-    mHandle = handle;
-    mHelper = helper;
-    mStatus = status;
-    mData = data;
+    this.task = task;
+    this.handle = handle;
+    this.helper = helper;
+    this.status = status;
+    this.data = data;
 
     // Assuming getLine1Number() will work with VVM3. For unprovisioned users the IMAP username
     // is not included in the status SMS, thus no other way to get the current phone number.
-    mNumber =
-        mHelper
-            .getContext()
-            .getSystemService(TelephonyManager.class)
-            .createForPhoneAccountHandle(mHandle)
-            .getLine1Number();
+    number =
+        stripInternational(
+            this.helper
+                .getContext()
+                .getSystemService(TelephonyManager.class)
+                .createForPhoneAccountHandle(this.handle)
+                .getLine1Number());
+  }
+
+  /**
+   * Self provisioning gateway expects 10 digit national format, but {@link
+   * TelephonyManager#getLine1Number()} might return e164 with "+1" at front.
+   */
+  private static String stripInternational(String number) {
+    if (number.startsWith("+1")) {
+      number = number.substring(2);
+    }
+    return number;
   }
 
   @WorkerThread
@@ -189,15 +202,15 @@ public class Vvm3Subscriber {
     // processSubscription() is called after network is available.
     VvmLog.i(TAG, "Subscribing");
 
-    try (NetworkWrapper wrapper = VvmNetworkRequest.getNetwork(mHelper, mHandle, mStatus)) {
+    try (NetworkWrapper wrapper = VvmNetworkRequest.getNetwork(helper, handle, status)) {
       Network network = wrapper.get();
       VvmLog.d(TAG, "provisioning: network available");
-      mRequestQueue =
-          Volley.newRequestQueue(mHelper.getContext(), new NetworkSpecifiedHurlStack(network));
+      requestQueue =
+          Volley.newRequestQueue(helper.getContext(), new NetworkSpecifiedHurlStack(network));
       processSubscription();
     } catch (RequestFailedException e) {
-      mHelper.handleEvent(mStatus, OmtpEvents.VVM3_VMG_CONNECTION_FAILED);
-      mTask.fail();
+      helper.handleEvent(status, OmtpEvents.VVM3_VMG_CONNECTION_FAILED);
+      task.fail();
     }
   }
 
@@ -206,11 +219,12 @@ public class Vvm3Subscriber {
       String gatewayUrl = getSelfProvisioningGateway();
       String selfProvisionResponse = getSelfProvisionResponse(gatewayUrl);
       String subscribeLink =
-          findSubscribeLink(getSubscribeLinkPatterns(mHelper.getContext()), selfProvisionResponse);
+          findSubscribeLink(getSubscribeLinkPatterns(helper.getContext()), selfProvisionResponse);
       clickSubscribeLink(subscribeLink);
     } catch (ProvisioningException e) {
       VvmLog.e(TAG, e.toString());
-      mTask.fail();
+      helper.handleEvent(status, OmtpEvents.CONFIG_SERVICE_NOT_AVAILABLE);
+      task.fail();
     }
   }
 
@@ -236,7 +250,7 @@ public class Vvm3Subscriber {
           @Override
           protected Map<String, String> getParams() {
             Map<String, String> params = new ArrayMap<>();
-            params.put(SPG_VZW_MDN_PARAM, mNumber);
+            params.put(SPG_VZW_MDN_PARAM, number);
             params.put(SPG_VZW_SERVICE_PARAM, SPG_VZW_SERVICE_BASIC);
             params.put(SPG_DEVICE_MODEL_PARAM, SPG_DEVICE_MODEL_ANDROID);
             params.put(SPG_APP_TOKEN_PARAM, SPG_APP_TOKEN);
@@ -247,11 +261,11 @@ public class Vvm3Subscriber {
           }
         };
 
-    mRequestQueue.add(stringRequest);
+    requestQueue.add(stringRequest);
     try {
       return future.get(REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
     } catch (InterruptedException | ExecutionException | TimeoutException e) {
-      mHelper.handleEvent(mStatus, OmtpEvents.VVM3_SPG_CONNECTION_FAILED);
+      helper.handleEvent(status, OmtpEvents.VVM3_SPG_CONNECTION_FAILED);
       throw new ProvisioningException(e.toString());
     }
   }
@@ -262,12 +276,12 @@ public class Vvm3Subscriber {
 
     StringRequest stringRequest =
         new StringRequest(Request.Method.POST, subscribeLink, future, future);
-    mRequestQueue.add(stringRequest);
+    requestQueue.add(stringRequest);
     try {
       // A new STATUS SMS will be sent after this request.
       future.get(REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
     } catch (TimeoutException | ExecutionException | InterruptedException e) {
-      mHelper.handleEvent(mStatus, OmtpEvents.VVM3_SPG_CONNECTION_FAILED);
+      helper.handleEvent(status, OmtpEvents.VVM3_SPG_CONNECTION_FAILED);
       throw new ProvisioningException(e.toString());
     }
     // It could take very long for the STATUS SMS to return. Waiting for it is unreliable.
@@ -277,7 +291,7 @@ public class Vvm3Subscriber {
 
   private String vvm3XmlRequest(String operation) throws ProvisioningException {
     VvmLog.d(TAG, "Sending vvm3XmlRequest for " + operation);
-    String voicemailManagementGateway = mData.getString(VMG_URL_KEY);
+    String voicemailManagementGateway = data.getString(VMG_URL_KEY);
     if (voicemailManagementGateway == null) {
       VvmLog.e(TAG, "voicemailManagementGateway url unknown");
       return null;
@@ -285,7 +299,7 @@ public class Vvm3Subscriber {
     String transactionId = createTransactionId();
     String body =
         String.format(
-            Locale.US, VMG_XML_REQUEST_FORMAT, transactionId, mNumber, operation, Build.MODEL);
+            Locale.US, VMG_XML_REQUEST_FORMAT, transactionId, number, operation, Build.MODEL);
 
     RequestFuture<String> future = RequestFuture.newFuture();
     StringRequest stringRequest =
@@ -295,7 +309,7 @@ public class Vvm3Subscriber {
             return body.getBytes();
           }
         };
-    mRequestQueue.add(stringRequest);
+    requestQueue.add(stringRequest);
 
     try {
       String response = future.get(REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
@@ -304,7 +318,7 @@ public class Vvm3Subscriber {
       }
       return response;
     } catch (InterruptedException | ExecutionException | TimeoutException e) {
-      mHelper.handleEvent(mStatus, OmtpEvents.VVM3_VMG_CONNECTION_FAILED);
+      helper.handleEvent(status, OmtpEvents.VVM3_VMG_CONNECTION_FAILED);
       throw new ProvisioningException(e.toString());
     }
   }
@@ -312,7 +326,8 @@ public class Vvm3Subscriber {
   @VisibleForTesting
   static List<Pattern> getSubscribeLinkPatterns(Context context) {
     String patternsJsonString =
-        ConfigProviderBindings.get(context)
+        ConfigProviderComponent.get(context)
+            .getConfigProvider()
             .getString(
                 VVM3_SUBSCRIBE_LINK_PATTERNS_JSON_ARRAY, VVM3_SUBSCRIBE_LINK_DEFAULT_PATTERNS);
     List<Pattern> patterns = new ArrayList<>();
@@ -364,15 +379,15 @@ public class Vvm3Subscriber {
 
   private static class NetworkSpecifiedHurlStack extends HurlStack {
 
-    private final Network mNetwork;
+    private final Network network;
 
     public NetworkSpecifiedHurlStack(Network network) {
-      mNetwork = network;
+      this.network = network;
     }
 
     @Override
     protected HttpURLConnection createConnection(URL url) throws IOException {
-      return (HttpURLConnection) mNetwork.openConnection(url);
+      return (HttpURLConnection) network.openConnection(url);
     }
   }
 }

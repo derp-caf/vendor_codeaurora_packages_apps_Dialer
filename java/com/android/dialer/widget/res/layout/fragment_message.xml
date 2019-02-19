@@ -14,28 +14,36 @@
   ~ See the License for the specific language governing permissions and
   ~ limitations under the License
   -->
-<LinearLayout
+<RelativeLayout
   xmlns:android="http://schemas.android.com/apk/res/android"
   android:layout_width="match_parent"
   android:layout_height="match_parent"
-  android:orientation="vertical"
-  android:gravity="bottom"
-  android:background="@color/background_dialer_white">
+  android:background="?android:attr/colorBackground">
 
-  <LinearLayout
-    android:id="@+id/message_container"
-    android:orientation="vertical"
-    android:layout_width="match_parent"
-    android:layout_height="wrap_content"/>
+  <ScrollView
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:layout_above="@+id/divider">
+
+    <LinearLayout
+      android:id="@+id/message_container"
+      android:orientation="vertical"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"/>
+  </ScrollView>
 
   <View
+    android:id="@+id/divider"
     android:layout_width="match_parent"
     android:layout_height="@dimen/message_divider_height"
-    android:background="#12000000"/>
+    android:background="#12000000"
+    android:layout_above="@+id/edittext_container"/>
 
   <RelativeLayout
+    android:id="@+id/edittext_container"
     android:layout_width="wrap_content"
-    android:layout_height="wrap_content">
+    android:layout_height="wrap_content"
+    android:layout_alignParentBottom="true">
 
     <EditText
       android:id="@+id/custom_message"
@@ -44,13 +52,13 @@
       android:padding="@dimen/textview_item_padding"
       android:textSize="@dimen/message_item_text_size"
       android:hint="@string/custom_message_hint"
-      android:textColor="@color/dialer_primary_text_color"
-      android:textColorHint="@color/dialer_edit_text_hint_color"
-      android:background="@color/background_dialer_white"
-      android:textCursorDrawable="@drawable/searchedittext_custom_cursor"
+      android:textColor="?android:attr/textColorPrimary"
+      android:textColorHint="?android:attr/textColorHint"
+      android:background="?android:attr/colorBackground"
+      android:textCursorDrawable="@drawable/edittext_custom_cursor"
       android:layout_toStartOf="@+id/count_and_send_container"
       android:inputType="textShortMessage|textCapSentences"
-      android:imeOptions="actionSend"/>
+      android:imeOptions="flagNoExtractUi|actionSend"/>
 
     <LinearLayout
       android:id="@+id/count_and_send_container"
@@ -77,7 +85,7 @@
         android:layout_height="wrap_content"
         android:visibility="gone"
         android:textSize="@dimen/message_remaining_char_text_size"
-        android:textColor="@color/dialer_edit_text_hint_color"/>
+        android:textColor="?android:attr/textColorHint"/>
     </LinearLayout>
   </RelativeLayout>
-</LinearLayout>
+</RelativeLayout>

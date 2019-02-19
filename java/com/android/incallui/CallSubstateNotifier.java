@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -36,6 +36,7 @@ import java.util.List;
 import com.google.common.base.Preconditions;
 import com.android.incallui.call.CallList;
 import com.android.incallui.call.DialerCall;
+import com.android.incallui.call.state.DialerCallState;
 import com.android.incallui.InCallPresenter.InCallDetailsListener;
 
 /**
@@ -106,7 +107,7 @@ public class CallSubstateNotifier implements InCallDetailsListener, CallList.Lis
         Log.d(this, "onDetailsChanged - call: " + call + "details: " + details);
 
         if (call == null || details == null ||
-                !DialerCall.State.isConnectingOrConnected(call.getState())) {
+                !DialerCallState.isConnectingOrConnected(call.getState())) {
             Log.d(this, "onDetailsChanged - Call/details is null/Call is not connected. Return");
             return;
         }

@@ -17,19 +17,20 @@
 package com.android.incallui.answer.protocol;
 
 import android.support.annotation.FloatRange;
+import com.android.incallui.incalluilock.InCallUiLock;
 
 /** Callbacks implemented by the container app for this module. */
 public interface AnswerScreenDelegate {
 
   void onAnswerScreenUnready();
 
-  void onDismissDialog();
-
   void onRejectCallWithMessage(String message);
 
   void onAnswer(boolean answerVideoAsAudio);
 
   void onReject();
+
+  void onSpeakEasyCall();
 
   void onAnswerAndReleaseCall();
 
@@ -49,4 +50,6 @@ public interface AnswerScreenDelegate {
 
   /** Returns true if any answer/reject action timed out. */
   boolean isActionTimeout();
+
+  InCallUiLock acquireInCallUiLock(String tag);
 }

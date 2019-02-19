@@ -26,9 +26,9 @@ import android.support.annotation.Nullable;
 import android.telecom.PhoneAccountHandle;
 import android.text.TextUtils;
 import com.android.contacts.common.ContactsUtils.UserType;
-import com.android.contacts.common.preference.ContactsPreferences;
 import com.android.contacts.common.util.ContactDisplayUtils;
-import com.android.dialer.compat.AppCompatConstants;
+import com.android.dialer.calllogutils.CallTypeHelper;
+import com.android.dialer.contacts.displaypreference.ContactDisplayPreferences.DisplayOrder;
 import com.android.dialer.logging.ContactSource;
 import com.android.dialer.phonenumbercache.ContactInfo;
 
@@ -69,7 +69,7 @@ public class PhoneCallDetails {
    * The user's preference on name display order, last name first or first time first. {@see
    * ContactsPreferences}
    */
-  public int nameDisplayOrder;
+  public DisplayOrder nameDisplayOrder;
   // The type of phone, e.g., {@link Phone#TYPE_HOME}, 0 if not available.
   public int numberType;
   // The custom label associated with the phone number in the contact, or the empty string.
@@ -103,6 +103,9 @@ public class PhoneCallDetails {
   // Voicemail transcription
   public String transcription;
 
+  // Voicemail transcription state, ie. in-progress, failed, etc.
+  public int transcriptionState;
+
   // The display string for the number.
   public String displayNumber;
 
@@ -134,6 +137,9 @@ public class PhoneCallDetails {
   public ContactInfo cachedContactInfo;
   public int voicemailId;
   public int previousGroup;
+
+  // The URI of the voicemail associated with this phone call, if this call went to voicemail.
+  public String voicemailUri;
 
   /**
    * Constructor with required fields for the details of a call with a number associated with a
@@ -181,8 +187,7 @@ public class PhoneCallDetails {
    * @return the preferred name
    */
   public CharSequence getPreferredName() {
-    if (nameDisplayOrder == ContactsPreferences.DISPLAY_ORDER_PRIMARY
-        || TextUtils.isEmpty(nameAlternative)) {
+    if (nameDisplayOrder == DisplayOrder.PRIMARY || TextUtils.isEmpty(nameAlternative)) {
       return namePrimary;
     }
     return nameAlternative;
@@ -199,9 +204,9 @@ public class PhoneCallDetails {
   public boolean hasIncomingCalls() {
     for (int i = 0; i < callTypes.length; i++) {
       if (callTypes[i] == CallLog.Calls.INCOMING_TYPE
-          || callTypes[i] == AppCompatConstants.INCOMING_IMS_TYPE
+          || callTypes[i] == CallTypeHelper.INCOMING_IMS_TYPE
           || callTypes[i] == CallLog.Calls.MISSED_TYPE
-          || callTypes[i] == AppCompatConstants.MISSED_IMS_TYPE
+          || callTypes[i] == CallTypeHelper.MISSED_IMS_TYPE
           || callTypes[i] == CallLog.Calls.VOICEMAIL_TYPE
           || callTypes[i] == CallLog.Calls.REJECTED_TYPE
           || callTypes[i] == CallLog.Calls.BLOCKED_TYPE) {

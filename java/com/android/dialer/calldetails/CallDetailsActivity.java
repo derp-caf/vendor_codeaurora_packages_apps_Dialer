@@ -16,176 +16,131 @@
 
 package com.android.dialer.calldetails;
 
+import android.app.LoaderManager.LoaderCallbacks;
 import android.content.Context;
 import android.content.Intent;
-import android.os.AsyncTask;
+import android.content.Loader;
+import android.database.Cursor;
 import android.os.Bundle;
-import android.provider.CallLog;
-import android.provider.CallLog.Calls;
-import android.support.annotation.NonNull;
-import android.support.v7.app.AppCompatActivity;
-import android.support.v7.widget.LinearLayoutManager;
-import android.support.v7.widget.RecyclerView;
-import android.support.v7.widget.Toolbar;
-import android.support.v7.widget.Toolbar.OnMenuItemClickListener;
-import android.view.MenuItem;
-import com.android.dialer.calldetails.CallDetailsEntries.CallDetailsEntry;
+import com.android.dialer.CoalescedIds;
+import com.android.dialer.calldetails.CallDetailsEntryViewHolder.CallDetailsEntryListener;
+import com.android.dialer.calldetails.CallDetailsFooterViewHolder.DeleteCallDetailsListener;
+import com.android.dialer.calldetails.CallDetailsFooterViewHolder.ReportCallIdListener;
+import com.android.dialer.calldetails.CallDetailsHeaderViewHolder.CallDetailsHeaderListener;
+import com.android.dialer.calllog.database.contract.AnnotatedCallLogContract.AnnotatedCallLog;
 import com.android.dialer.common.Assert;
-import com.android.dialer.common.concurrent.AsyncTaskExecutors;
-import com.android.dialer.dialercontact.DialerContact;
-import com.android.dialer.logging.DialerImpression;
-import com.android.dialer.logging.Logger;
-import com.android.dialer.logging.UiAction;
-import com.android.dialer.performancereport.PerformanceReport;
-import com.android.dialer.postcall.PostCall;
+import com.android.dialer.enrichedcall.EnrichedCallComponent;
 import com.android.dialer.protos.ProtoParsers;
-import java.util.List;
 
-/** Displays the details of a specific call log entry. */
-public class CallDetailsActivity extends AppCompatActivity
-    implements OnMenuItemClickListener, CallDetailsFooterViewHolder.ReportCallIdListener {
+/**
+ * Displays the details of a specific call log entry.
+ *
+ * <p>This activity is for the new call log.
+ *
+ * <p>See {@link CallDetailsAdapterCommon} for logic shared between this activity and the one for
+ * the old call log.
+ */
+public final class CallDetailsActivity extends CallDetailsActivityCommon {
+  public static final String EXTRA_COALESCED_CALL_LOG_IDS = "coalesced_call_log_ids";
+  public static final String EXTRA_HEADER_INFO = "header_info";
 
-  public static final String EXTRA_PHONE_NUMBER = "phone_number";
-  public static final String EXTRA_HAS_ENRICHED_CALL_DATA = "has_enriched_call_data";
-  private static final String EXTRA_CALL_DETAILS_ENTRIES = "call_details_entries";
-  private static final String EXTRA_CONTACT = "contact";
-  private static final String EXTRA_CAN_REPORT_CALLER_ID = "can_report_caller_id";
-  private static final String TASK_DELETE = "task_delete";
+  private static final int CALL_DETAILS_LOADER_ID = 0;
 
-  private List<CallDetailsEntry> entries;
-  private DialerContact contact;
+  /** IDs of call log entries, used to retrieve them from the annotated call log. */
+  private CoalescedIds coalescedCallLogIds;
 
-  public static boolean isLaunchIntent(Intent intent) {
-    return intent.getComponent() != null
-        && CallDetailsActivity.class.getName().equals(intent.getComponent().getClassName());
-  }
+  /** Info to be shown in the header. */
+  private CallDetailsHeaderInfo headerInfo;
 
+  /** Returns an {@link Intent} to launch this activity. */
   public static Intent newInstance(
       Context context,
-      @NonNull CallDetailsEntries details,
-      @NonNull DialerContact contact,
-      boolean canReportCallerId) {
-    Assert.isNotNull(details);
-    Assert.isNotNull(contact);
-
+      CoalescedIds coalescedAnnotatedCallLogIds,
+      CallDetailsHeaderInfo callDetailsHeaderInfo,
+      boolean canReportCallerId,
+      boolean canSupportAssistedDialing) {
     Intent intent = new Intent(context, CallDetailsActivity.class);
-    ProtoParsers.put(intent, EXTRA_CONTACT, contact);
-    ProtoParsers.put(intent, EXTRA_CALL_DETAILS_ENTRIES, details);
+    ProtoParsers.put(
+        intent, EXTRA_COALESCED_CALL_LOG_IDS, Assert.isNotNull(coalescedAnnotatedCallLogIds));
+    ProtoParsers.put(intent, EXTRA_HEADER_INFO, Assert.isNotNull(callDetailsHeaderInfo));
     intent.putExtra(EXTRA_CAN_REPORT_CALLER_ID, canReportCallerId);
+    intent.putExtra(EXTRA_CAN_SUPPORT_ASSISTED_DIALING, canSupportAssistedDialing);
     return intent;
   }
 
   @Override
-  protected void onCreate(Bundle savedInstanceState) {
-    super.onCreate(savedInstanceState);
-    setContentView(R.layout.call_details_activity);
-    Toolbar toolbar = findViewById(R.id.toolbar);
-    toolbar.inflateMenu(R.menu.call_details_menu);
-    toolbar.setOnMenuItemClickListener(this);
-    toolbar.setTitle(R.string.call_details);
-    toolbar.setNavigationOnClickListener(
-        v -> {
-          PerformanceReport.recordClick(UiAction.Type.CLOSE_CALL_DETAIL_WITH_CANCEL_BUTTON);
-          finish();
-        });
-    onHandleIntent(getIntent());
-  }
+  protected void handleIntent(Intent intent) {
+    Assert.checkArgument(intent.hasExtra(EXTRA_COALESCED_CALL_LOG_IDS));
+    Assert.checkArgument(intent.hasExtra(EXTRA_HEADER_INFO));
+    Assert.checkArgument(intent.hasExtra(EXTRA_CAN_REPORT_CALLER_ID));
+    Assert.checkArgument(intent.hasExtra(EXTRA_CAN_SUPPORT_ASSISTED_DIALING));
 
-  @Override
-  protected void onResume() {
-    super.onResume();
-
-    // Some calls may not be recorded (eg. from quick contact),
-    // so we should restart recording after these calls. (Recorded call is stopped)
-    PostCall.restartPerformanceRecordingIfARecentCallExist(this);
-    if (!PerformanceReport.isRecording()) {
-      PerformanceReport.startRecording();
-    }
-
-    PostCall.promptUserForMessageIfNecessary(this, findViewById(R.id.recycler_view));
-  }
-
-  @Override
-  protected void onNewIntent(Intent intent) {
-    super.onNewIntent(intent);
-    onHandleIntent(intent);
-  }
-
-  private void onHandleIntent(Intent intent) {
-    contact = ProtoParsers.getTrusted(intent, EXTRA_CONTACT, DialerContact.getDefaultInstance());
-    entries =
+    setCallDetailsEntries(CallDetailsEntries.getDefaultInstance());
+    coalescedCallLogIds =
         ProtoParsers.getTrusted(
-                intent, EXTRA_CALL_DETAILS_ENTRIES, CallDetailsEntries.getDefaultInstance())
-            .getEntriesList();
+            intent, EXTRA_COALESCED_CALL_LOG_IDS, CoalescedIds.getDefaultInstance());
+    headerInfo =
+        ProtoParsers.getTrusted(
+            intent, EXTRA_HEADER_INFO, CallDetailsHeaderInfo.getDefaultInstance());
 
-    RecyclerView recyclerView = findViewById(R.id.recycler_view);
-    recyclerView.setLayoutManager(new LinearLayoutManager(this));
-    recyclerView.setAdapter(new CallDetailsAdapter(this, contact, entries, this));
-    PerformanceReport.logOnScrollStateChange(recyclerView);
+    getLoaderManager()
+        .initLoader(
+            CALL_DETAILS_LOADER_ID, /* args = */ null, new CallDetailsLoaderCallbacks(this));
   }
 
   @Override
-  public boolean onMenuItemClick(MenuItem item) {
-    if (item.getItemId() == R.id.call_detail_delete_menu_item) {
-      Logger.get(this).logImpression(DialerImpression.Type.USER_DELETED_CALL_LOG_ITEM);
-      AsyncTaskExecutors.createAsyncTaskExecutor().submit(TASK_DELETE, new DeleteCallsTask());
-      item.setEnabled(false);
-      return true;
-    }
-    return false;
+  protected CallDetailsAdapterCommon createAdapter(
+      CallDetailsEntryListener callDetailsEntryListener,
+      CallDetailsHeaderListener callDetailsHeaderListener,
+      ReportCallIdListener reportCallIdListener,
+      DeleteCallDetailsListener deleteCallDetailsListener) {
+    return new CallDetailsAdapter(
+        this,
+        headerInfo,
+        getCallDetailsEntries(),
+        callDetailsEntryListener,
+        callDetailsHeaderListener,
+        reportCallIdListener,
+        deleteCallDetailsListener);
   }
 
   @Override
-  public void onBackPressed() {
-    PerformanceReport.recordClick(UiAction.Type.PRESS_ANDROID_BACK_BUTTON);
-    super.onBackPressed();
+  protected String getNumber() {
+    return headerInfo.getDialerPhoneNumber().getNormalizedNumber();
   }
 
-  @Override
-  public void reportCallId(String number) {
-    ReportDialogFragment.newInstance(number).show(getFragmentManager(), null);
-  }
+  /**
+   * {@link LoaderCallbacks} for {@link CallDetailsCursorLoader}, which loads call detail entries
+   * from {@link AnnotatedCallLog}.
+   */
+  private static final class CallDetailsLoaderCallbacks implements LoaderCallbacks<Cursor> {
+    private final CallDetailsActivity activity;
 
-  @Override
-  public boolean canReportCallerId(String number) {
-    return getIntent().getExtras().getBoolean(EXTRA_CAN_REPORT_CALLER_ID, false);
-  }
-
-  /** Delete specified calls from the call log. */
-  private class DeleteCallsTask extends AsyncTask<Void, Void, Void> {
-
-    private final String callIds;
-
-    DeleteCallsTask() {
-      StringBuilder callIds = new StringBuilder();
-      for (CallDetailsEntry entry : entries) {
-        if (callIds.length() != 0) {
-          callIds.append(",");
-        }
-        callIds.append(entry.getCallId());
-      }
-      this.callIds = callIds.toString();
+    CallDetailsLoaderCallbacks(CallDetailsActivity callDetailsActivity) {
+      this.activity = callDetailsActivity;
     }
 
     @Override
-    protected Void doInBackground(Void... params) {
-      getContentResolver()
-          .delete(Calls.CONTENT_URI, CallLog.Calls._ID + " IN (" + callIds + ")", null);
-      return null;
+    public Loader<Cursor> onCreateLoader(int id, Bundle args) {
+      return new CallDetailsCursorLoader(activity, Assert.isNotNull(activity.coalescedCallLogIds));
     }
 
     @Override
-    public void onPostExecute(Void result) {
-      Intent data = new Intent();
-      data.putExtra(EXTRA_PHONE_NUMBER, contact.getNumber());
-      for (CallDetailsEntry entry : entries) {
-        if (entry.getHistoryResultsCount() > 0) {
-          data.putExtra(EXTRA_HAS_ENRICHED_CALL_DATA, true);
-          break;
-        }
-      }
-      setResult(RESULT_OK, data);
-      finish();
+    public void onLoadFinished(Loader<Cursor> loader, Cursor data) {
+      updateCallDetailsEntries(CallDetailsCursorLoader.toCallDetailsEntries(activity, data));
+      activity.loadRttTranscriptAvailability();
+    }
+
+    @Override
+    public void onLoaderReset(Loader<Cursor> loader) {
+      updateCallDetailsEntries(CallDetailsEntries.getDefaultInstance());
+    }
+
+    private void updateCallDetailsEntries(CallDetailsEntries newEntries) {
+      activity.setCallDetailsEntries(newEntries);
+      EnrichedCallComponent.get(activity)
+          .getEnrichedCallManager()
+          .requestAllHistoricalData(activity.getNumber(), newEntries);
     }
   }
 }

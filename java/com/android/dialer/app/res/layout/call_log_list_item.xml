@@ -29,11 +29,9 @@
     android:layout_gravity="start"
     android:layout_marginStart="@dimen/call_log_start_margin"
     android:layout_marginEnd="@dimen/call_log_outer_margin"
-    android:fontFamily="sans-serif-medium"
-    android:textColor="@color/call_log_day_group_heading_color"
-    android:textSize="@dimen/call_log_day_group_heading_size"
     android:paddingTop="@dimen/call_log_day_group_padding_top"
-    android:paddingBottom="@dimen/call_log_day_group_padding_bottom"/>
+    android:paddingBottom="@dimen/call_log_day_group_padding_bottom"
+    style="@style/Dialer.TextAppearance.OVERLINE.Ellipsize"/>
 
   <android.support.v7.widget.CardView
     android:id="@+id/call_log_row"
@@ -63,6 +61,7 @@
         <FrameLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_gravity="top"
             >
 
           <com.android.dialer.app.calllog.DialerQuickContactBadge
@@ -71,7 +70,6 @@
               android:layout_height="@dimen/contact_photo_size"
               android:paddingTop="2dp"
               android:nextFocusRight="@id/primary_action_view"
-              android:layout_gravity="top"
               android:focusable="true"/>
 
           <ImageView
@@ -93,15 +91,13 @@
           android:gravity="center_vertical"
           android:layout_marginStart="@dimen/call_log_list_item_info_margin_start">
 
-          <TextView
+          <com.android.dialer.widget.BidiTextView
             android:id="@+id/name"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginBottom="@dimen/call_log_name_margin_bottom"
             android:layout_marginEnd="@dimen/call_log_icon_margin"
-            android:textColor="@color/call_log_primary_color"
-            android:textSize="@dimen/call_log_primary_text_size"
-            android:singleLine="true"/>
+            style="@style/Dialer.TextAppearance.Primary.Ellipsize"/>
 
           <LinearLayout
             android:id="@+id/call_type"
@@ -139,9 +135,7 @@
               android:layout_height="wrap_content"
               android:layout_marginEnd="@dimen/call_log_icon_margin"
               android:layout_gravity="center_vertical"
-              android:textColor="@color/call_log_detail_color"
-              android:textSize="@dimen/call_log_detail_text_size"
-              android:singleLine="true"/>
+              style="Dialer.TextAppearance.Secondary.Ellipsize"/>
 
           </LinearLayout>
 
@@ -151,22 +145,79 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/call_log_call_account_margin_bottom"
             android:layout_marginEnd="@dimen/call_log_icon_margin"
-            android:textColor="?android:textColorSecondary"
-            android:textSize="@dimen/call_log_detail_text_size"
             android:visibility="gone"
-            android:singleLine="true"/>
+            style="Dialer.TextAppearance.Secondary2.Ellipsize"/>
 
-          <TextView
-            android:id="@+id/voicemail_transcription"
-            android:layout_width="wrap_content"
+          <LinearLayout
+            android:id="@+id/transcription"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/call_log_icon_margin"
-            android:textColor="@color/call_log_voicemail_transcript_color"
-            android:textSize="@dimen/call_log_voicemail_transcription_text_size"
-            android:ellipsize="marquee"
             android:visibility="gone"
-            android:singleLine="false"
-            android:maxLines="10"/>
+            android:orientation="vertical">
+
+            <TextView
+              android:id="@+id/voicemail_transcription"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:focusable="true"
+              android:nextFocusDown="@+id/voicemail_transcription_branding"
+              android:textIsSelectable="true"
+              style="Dialer.TextAppearance.Secondary2"/>
+
+            <TextView
+              android:id="@+id/voicemail_transcription_branding"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:focusable="true"
+              android:nextFocusUp="@id/voicemail_transcription"
+              android:nextFocusDown="@+id/voicemail_transcription_rating"
+              android:paddingTop="2dp"
+              style="Dialer.TextAppearance.Secondary2"/>
+
+            <LinearLayout
+                android:id="@+id/voicemail_transcription_rating"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/call_log_icon_margin"
+                android:layout_gravity="center_vertical"
+                android:visibility="gone"
+                android:paddingTop="2dp"
+                android:orientation="horizontal">
+
+              <TextView
+                  style="@style/TranscriptionQualityRating"
+                  android:id="@+id/voicemail_transcription_rating_text"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:layout_weight="1"
+                  android:gravity="start|center_vertical"
+                  android:focusable="true"
+                  android:text="@string/voicemail_transcription_rating"/>
+
+              <ImageView
+                  style="@style/TranscriptionQualityRatingIcon"
+                  android:id="@+id/voicemail_transcription_rating_good"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:contentDescription="@string/description_rating_good"
+                  android:gravity="end|center_vertical"
+                  android:focusable="true"
+                  android:src="@drawable/quantum_ic_thumb_up_grey600_24"/>
+
+              <ImageView
+                  style="@style/TranscriptionQualityRatingIcon"
+                  android:id="@+id/voicemail_transcription_rating_bad"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:contentDescription="@string/description_rating_bad"
+                  android:gravity="end|center_vertical"
+                  android:focusable="true"
+                  android:src="@drawable/quantum_ic_thumb_down_grey600_24"/>
+
+            </LinearLayout>
+
+          </LinearLayout>
 
         </LinearLayout>
 
@@ -177,7 +228,7 @@
           android:layout_gravity="center_vertical"
           android:background="?android:attr/selectableItemBackgroundBorderless"
           android:scaleType="center"
-          android:tint="@color/call_log_list_item_primary_action_icon_tint"
+          android:tint="?colorIcon"
           android:visibility="gone"/>
 
       </LinearLayout>
