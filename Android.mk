@@ -9,6 +9,7 @@
 #      $ protoc --plugin=protoc-gen-grpc-java=prebuilts/tools/common/m2/repository/io/grpc/protoc-gen-grpc-java/1.0.3/protoc-gen-grpc-java-1.0.3-linux-x86_64.exe \
 #               --grpc-java_out=lite:"packages/apps/Dialer/java/com/android/voicemail/impl/" \
 #               --proto_path="packages/apps/Dialer/java/com/android/voicemail/impl/transcribe/grpc/" "packages/apps/Dialer/java/com/android/voicemail/impl/transcribe/grpc/voicemail_transcription.proto"
+ifeq ($(TARGET_FWK_SUPPORTS_FULL_VALUEADDS), true)
 LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
@@ -146,7 +147,7 @@ LOCAL_STATIC_ANDROID_LIBRARIES := \
 	android-support-v7-recyclerview \
 
 LOCAL_JAVA_LIBRARIES := \
-	dialer-auto-value-target \
+	qti-dialer-auto-value-target \
 	org.apache.http.legacy \
 	ims-ext-common \
         ims-common \
@@ -501,3 +502,4 @@ LOCAL_JAVA_LANGUAGE_VERSION := 1.8
 include $(BUILD_HOST_JAVA_LIBRARY)
 
 include $(CLEAR_VARS)
+endif
