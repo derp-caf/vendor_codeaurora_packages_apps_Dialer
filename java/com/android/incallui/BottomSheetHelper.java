@@ -62,6 +62,7 @@ import java.util.List;
 
 import org.codeaurora.ims.QtiCallConstants;
 import org.codeaurora.ims.QtiImsExtListenerBaseImpl;
+import org.codeaurora.ims.QtiImsExtConnector;
 import org.codeaurora.ims.QtiImsExtManager;
 import org.codeaurora.ims.QtiImsException;
 import org.codeaurora.ims.utils.QtiImsExtUtils;
@@ -80,6 +81,8 @@ public class BottomSheetHelper implements PrimaryCallTracker.PrimaryCallChangeLi
    private boolean mHasSentCancelUpgradeRequest = false;
    private AlertDialog callTransferDialog;
    private AlertDialog mCancelModifyCallDialog;
+   private QtiImsExtConnector mQtiImsExtConnector;
+   private QtiImsExtManager mQtiImsExtManager;
    private static final int BLIND_TRANSFER = 0;
    private static final int ASSURED_TRANSFER = 1;
    private static final int CONSULTATIVE_TRANSFER = 2;
@@ -116,9 +119,30 @@ public class BottomSheetHelper implements PrimaryCallTracker.PrimaryCallChangeLi
      return mHelper;
    }
 
+   private void createQtiImsExtConnector(Context context) {
+     try {
+       mQtiImsExtConnector = new QtiImsExtConnector(context,
+           new QtiImsExtConnector.IListener() {
+             @Override
+             public void onConnectionAvailable(QtiImsExtManager qtiImsExtManager) {
+               mQtiImsExtManager = qtiImsExtManager;
+             }
+             @Override
+             public void onConnectionUnavailable() {
+               mQtiImsExtManager = null;
+             }
+           });
+     } catch (QtiImsException e) {
+       LogUtil.e("BottomSheetHelper.createQtiImsExtConnector",
+           "Unable to create QtiImsExtConnector");
+     }
+   }
+
    public void setUp(Context context) {
      LogUtil.d("BottomSheetHelper","setUp");
      mContext = context;
+     createQtiImsExtConnector(context);
+     mQtiImsExtConnector.connect();
      mResources = context.getResources();
      final String[][] moreOptions = getMoreOptionsFromRes(R.array.bottom_sheet_more_options);
      moreOptionsMap = prepareSheetOptions(moreOptions);
@@ -139,6 +163,9 @@ public class BottomSheetHelper implements PrimaryCallTracker.PrimaryCallChangeLi
        mPrimaryCallTracker = null;
      }
      mIsHideMe = false;
+     mQtiImsExtConnector.disconnect();
+     mQtiImsExtConnector = null;
+     mQtiImsExtManager = null;
      mContext = null;
      mResources = null;
      moreOptionsMap = null;
@@ -580,12 +607,15 @@ public class BottomSheetHelper implements PrimaryCallTracker.PrimaryCallChangeLi
        LogUtil.w("BottomSheetHelper.callTransferClicked", "transfer number error, number is null");
        return;
      }
+     if (mQtiImsExtManager == null) {
+       QtiCallUtils.displayToast(mContext, "An error occurred, Please try again later.");
+       return;
+     }
      int phoneId = getPhoneId();
      try {
        LogUtil.d("BottomSheetHelper.sendCallTransferRequest", "Phoneid-" + phoneId + " type-"
             + type + " number- " + number);
-       new QtiImsExtManager(mContext).sendCallTransferRequest(phoneId, type, number,
-            imsInterfaceListener);
+       mQtiImsExtManager.sendCallTransferRequest(phoneId, type, number, imsInterfaceListener);
      } catch (QtiImsException e) {
        LogUtil.e("BottomSheetHelper.sendCallTransferRequest", "exception " + e);
      }
@@ -835,10 +865,16 @@ public class BottomSheetHelper implements PrimaryCallTracker.PrimaryCallChangeLi
         LogUtil.w("BottomSheetHelper.cancelUpgradeClicked", "call is null");
         return;
       }
+
+      if (mQtiImsExtManager == null) {
+        QtiCallUtils.displayToast(mContext, "An error occurred, Please try again later.");
+        return;
+      }
+
       try {
         LogUtil.d("BottomSheetHelper.cancelUpgradeClicked",
             "Sending cancel upgrade request with Phone id " + getPhoneId());
-        new QtiImsExtManager(mContext).sendCancelModifyCall(getPhoneId(),imsInterfaceListener);
+        mQtiImsExtManager.sendCancelModifyCall(getPhoneId(),imsInterfaceListener);
         mHasSentCancelUpgradeRequest = true;
         maybeUpdateCancelModifyCallInMap();
       } catch (QtiImsException e) {

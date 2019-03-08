@@ -102,6 +102,8 @@
   <uses-permission android:name="com.oppo.launcher.permission.READ_SETTINGS"/>
   <uses-permission android:name="com.oppo.launcher.permission.WRITE_SETTINGS"/>
 
+  <uses-permission android:name="com.qti.permission.BIND_QTI_IMS_SERVICE" />
+
   <application
     android:hardwareAccelerated="true"
     android:icon="@mipmap/ic_launcher_phone"
@@ -110,6 +112,8 @@
     android:supportsRtl="true"
     android:usesCleartextTraffic="false"
     android:extractNativeLibs="false">
+
+    <uses-library android:name="ims-ext-common" />
   </application>
 
 </manifest>

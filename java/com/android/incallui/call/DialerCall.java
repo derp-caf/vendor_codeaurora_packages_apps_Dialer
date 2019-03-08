@@ -393,6 +393,10 @@ public class DialerCall implements VideoTechListener, StateChangedListener, Capa
                 isCallForwarded = true;
                 update();
               }
+            case TelephonyManagerCompat.EVENT_RTT_AUDIO_INDICATION_CHANGED:
+              final boolean isRttAudioSpeechPresent = extras.getBoolean(
+                      android.telecom.Connection.EXTRA_IS_RTT_AUDIO_PRESENT, false);
+              LogUtil.i("DialerCall - Rtt audio : ", (isRttAudioSpeechPresent ? "ON" : "OFF"));
               break;
             case TelephonyManagerCompat.EVENT_SUPPLEMENTARY_SERVICE_NOTIFICATION:
                 notifySuplServiceMessage(extras);
