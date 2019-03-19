@@ -75,16 +75,10 @@ public class ImsVideoCallCallback extends VideoCall.Callback {
           "ImsVideoTech.onSessionModifyRequestReceived", "call downgraded to %d", newVideoState);
     } else if (previousVideoState != newVideoState) {
       requestedVideoState = newVideoState;
-      if (!wasVideoCall) {
-        videoTech.setSessionModificationState(
-            SessionModificationState.RECEIVED_UPGRADE_TO_VIDEO_REQUEST);
-        listener.onVideoUpgradeRequestReceived();
-        logger.logImpression(DialerImpression.Type.IMS_VIDEO_REQUEST_RECEIVED);
-      } else {
-        LogUtil.i(
-            "ImsVideoTech.onSessionModifyRequestReceived", "call updated to %d", newVideoState);
-        videoTech.acceptVideoRequest(context);
-      }
+      videoTech.setSessionModificationState(
+          SessionModificationState.RECEIVED_UPGRADE_TO_VIDEO_REQUEST);
+      listener.onVideoUpgradeRequestReceived();
+      logger.logImpression(DialerImpression.Type.IMS_VIDEO_REQUEST_RECEIVED);
     }
   }
 

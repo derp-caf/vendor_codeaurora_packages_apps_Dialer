@@ -603,7 +603,8 @@ public class BottomSheetHelper implements PrimaryCallTracker.PrimaryCallChangeLi
 
    private void callTransferClicked(int type) {
      String number = QtiImsExtUtils.getCallDeflectNumber(mContext.getContentResolver());
-     if (number == null) {
+     //For Consultative transfer number is not needed
+     if (number == null && type != QtiImsExtUtils.QTI_IMS_CONSULTATIVE_TRANSFER) {
        LogUtil.w("BottomSheetHelper.callTransferClicked", "transfer number error, number is null");
        return;
      }

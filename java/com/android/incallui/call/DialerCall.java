@@ -393,6 +393,7 @@ public class DialerCall implements VideoTechListener, StateChangedListener, Capa
                 isCallForwarded = true;
                 update();
               }
+              break;
             case TelephonyManagerCompat.EVENT_RTT_AUDIO_INDICATION_CHANGED:
               final boolean isRttAudioSpeechPresent = extras.getBoolean(
                       android.telecom.Connection.EXTRA_IS_RTT_AUDIO_PRESENT, false);
@@ -1259,7 +1260,7 @@ public class DialerCall implements VideoTechListener, StateChangedListener, Capa
   private void updateEmergencyCallState() {
       Uri handle = telecomCall.getDetails().getHandle();
       isEmergencyCall = QtiCallUtils.isEmergencyNumber
-              (handle == null ? "" : handle.getSchemeSpecificPart());
+              (context, handle == null ? "" : handle.getSchemeSpecificPart());
   }
 
   public LogState getLogState() {

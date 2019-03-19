@@ -1,5 +1,5 @@
 /**
- Copyright (c) 2015-2018 The Linux Foundation. All rights reserved.
+ Copyright (c) 2015-2019 The Linux Foundation. All rights reserved.
 
  Redistribution and use in source and binary forms, with or without
  modification, are permitted provided that the following conditions are
@@ -37,13 +37,16 @@ import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.res.Resources;
 import android.os.IBinder;
+import android.os.PersistableBundle;
 import android.os.RemoteException;
 import android.telecom.Connection.VideoProvider;
+import android.telephony.CarrierConfigManager;
 import android.telephony.SubscriptionInfo;
+import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
+import android.telephony.ims.ImsMmTelManager;
 import android.widget.Toast;
 import android.telecom.VideoProfile;
-import android.telephony.SubscriptionManager;
 import com.android.dialer.util.PermissionsUtil;
 import com.android.ims.ImsManager;
 import com.android.incallui.call.CallList;
@@ -52,7 +55,6 @@ import com.android.incallui.call.state.DialerCallState;
 import java.lang.reflect.*;
 import org.codeaurora.ims.QtiCallConstants;
 import org.codeaurora.ims.utils.QtiImsExtUtils;
-import org.codeaurora.internal.IExtTelephony;
 
 /**
  * This class contains Qti specific utiltity functions.
@@ -60,81 +62,16 @@ import org.codeaurora.internal.IExtTelephony;
 public class QtiCallUtils {
 
     private static String LOG_TAG = "QtiCallUtils";
-    private static IExtTelephony sIExtTelephony = null;
     //Maximum number of IMS phones in device.
     private static final int MAX_IMS_PHONE_COUNT = 2;
 
     /**
-     * Returns IExtTelephony handle
+     * Returns true if it is emergency number else false
      */
-    public static IExtTelephony getIExtTelephony() {
-        if (sIExtTelephony != null) {
-            return sIExtTelephony;
-        }
-
-        IBinder b;
-        try {
-            Class c = Class.forName("android.os.ServiceManager");
-            Method m = c.getMethod("getService",new Class[]{String.class});
-
-            b = (IBinder)m.invoke(null, "extphone");
-            sIExtTelephony = IExtTelephony.Stub.asInterface(b);
-
-            b.linkToDeath(()->handleQtiExtTelephonyServiceDeath(), 0);
-        } catch (ClassNotFoundException e) {
-            Log.e(LOG_TAG, " ex: " + e);
-        } catch (IllegalArgumentException e) {
-            Log.e(LOG_TAG, " ex: " + e);
-        } catch (IllegalAccessException e) {
-            Log.e(LOG_TAG, " ex: " + e);
-        } catch (InvocationTargetException e) {
-            Log.e(LOG_TAG, " ex: " + e);
-        } catch (SecurityException e) {
-            Log.e(LOG_TAG, " ex: " + e);
-        } catch (NoSuchMethodException e) {
-            Log.e(LOG_TAG, " ex: " + e);
-        } catch (RemoteException e) {
-            Log.e(LOG_TAG, "Unable to listen for QtiExtTelephony service death");
-        }
-
-        return sIExtTelephony;
-    }
-
-    private static void handleQtiExtTelephonyServiceDeath() {
-        sIExtTelephony = null;
-        Log.i(LOG_TAG, "handleQtiExtTelephonyServiceDeath QtiExtTelephony binder died");
-    }
-
-    /**
-     * returns true if it is emrgency number else false
-     */
-    public static boolean isEmergencyNumber(String number) {
-        boolean isEmergencyNumber = false;
-
-        try {
-            isEmergencyNumber = getIExtTelephony().isEmergencyNumber(number);
-        } catch (RemoteException ex) {
-            Log.e(LOG_TAG, "Exception : " + ex);
-        } catch (NullPointerException ex) {
-            Log.e(LOG_TAG, "Exception : " + ex);
-        }
-        return isEmergencyNumber;
-    }
-
-    /**
-     * returns true if it is local emrgency number else false
-     */
-    public static boolean isLocalEmergencyNumber(String number) {
-        boolean isEmergencyNumber = false;
-
-        try {
-            isEmergencyNumber = getIExtTelephony().isLocalEmergencyNumber(number);
-        } catch (RemoteException ex) {
-            Log.e(LOG_TAG, "Exception : " + ex);
-        } catch (NullPointerException ex) {
-            Log.e(LOG_TAG, "Exception : " + ex);
-        }
-        return isEmergencyNumber;
+    public static boolean isEmergencyNumber(Context context, String number) {
+        TelephonyManager telephonyManager =
+                (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
+        return telephonyManager.isCurrentEmergencyNumber(number);
     }
 
    /**
@@ -313,25 +250,35 @@ public class QtiCallUtils {
         }
     }
 
-   /**
-    * if true, conference dialer  is enabled.
-    */
-    public static boolean isConferenceUriDialerEnabled(Context context) {
-        if (!PermissionsUtil.hasPhonePermissions(context)) {
+    private static boolean enforceReadPhoneState(Context context, String message) {
+        try {
+            context.enforceCallingOrSelfPermission(
+                    android.Manifest.permission.READ_PRIVILEGED_PHONE_STATE, message);
+            return true;
+        } catch (SecurityException e) {
+            context.enforceCallingOrSelfPermission(android.Manifest.permission.READ_PHONE_STATE,
+                    message);
             return false;
         }
+    }
 
-        boolean isEnhanced4gLteModeSettingEnabled = false;
-        boolean isVolteEnabledByPlatform = false;
-        TelephonyManager telephonyManager =
-                (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
-        for (int i = 0; i < telephonyManager.getPhoneCount(); i++) {
-            ImsManager imsMgr = ImsManager.getInstance(context, i);
-            isEnhanced4gLteModeSettingEnabled |=
-                   imsMgr.isEnhanced4gLteModeSettingEnabledByUser();
-            isVolteEnabledByPlatform |= imsMgr.isVolteEnabledByPlatform();
+    public static int getSubId(Context context, int phoneId) {
+        SubscriptionManager subscriptionManager =
+                (SubscriptionManager) context.getSystemService(
+                Context.TELEPHONY_SUBSCRIPTION_SERVICE);
+        if (subscriptionManager == null) {
+            Log.e(LOG_TAG, "getSubId SubscriptionManager is null");
+            return SubscriptionManager.INVALID_SUBSCRIPTION_ID;
         }
-        return isEnhanced4gLteModeSettingEnabled && isVolteEnabledByPlatform;
+
+        SubscriptionInfo subInfo =
+                subscriptionManager.getActiveSubscriptionInfoForSimSlotIndex(phoneId);
+        if (subInfo == null) {
+            Log.e(LOG_TAG, "getSubId subInfo is null");
+            return SubscriptionManager.INVALID_SUBSCRIPTION_ID;
+        }
+
+        return subInfo.getSubscriptionId();
     }
 
    /**
@@ -342,15 +289,7 @@ public class QtiCallUtils {
     */
     private static boolean isImsRegistered(Context context, int phoneId,
             TelephonyManager telephonyManager) {
-        SubscriptionManager subscriptionManager =
-                (SubscriptionManager) context.getSystemService(
-                Context.TELEPHONY_SUBSCRIPTION_SERVICE);
-        SubscriptionInfo subscriptionInfo =
-                subscriptionManager.getActiveSubscriptionInfoForSimSlotIndex(phoneId);
-        if (subscriptionInfo == null) {
-            return false;
-        }
-        int subId = subscriptionInfo.getSubscriptionId();
+        int subId = getSubId(context, phoneId);
         if (!SubscriptionManager.isValidSubscriptionId(subId)) {
             Log.e(LOG_TAG, "isImsRegistered subId is invalid");
             return false;
@@ -365,7 +304,8 @@ public class QtiCallUtils {
     * @return boolean whether should show 4G conference dialer menu option.
     */
     public static boolean show4gConferenceDialerMenuOption(Context context) {
-        if (!PermissionsUtil.hasPhonePermissions(context) || hasConferenceCall()) {
+        if (!PermissionsUtil.hasPhonePermissions(context) || hasConferenceCall() ||
+                !enforceReadPhoneState(context, "show4gConferenceDialerMenuOption")) {
             Log.i(LOG_TAG, "show4gConferenceDialerMenuOption no phone permissions");
             return false;
         }
@@ -373,6 +313,8 @@ public class QtiCallUtils {
         int unregisteredSpecificImsPhoneCount = 0;
         TelephonyManager telephonyManager =
                 (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
+        CarrierConfigManager configManager =
+                (CarrierConfigManager) context.getSystemService(Context.CARRIER_CONFIG_SERVICE);
         final int phoneCount = telephonyManager.getPhoneCount();
         boolean isEnhanced4gLteModeSettingEnabled = false;
         boolean isVolteEnabledByPlatform = false;
@@ -387,10 +329,20 @@ public class QtiCallUtils {
             } else if (!isImsRegistered && isCarrierConfigEnabled) {
                 unregisteredSpecificImsPhoneCount++;
             } else if (!isCarrierConfigEnabled) {
-                ImsManager imsMgr = ImsManager.getInstance(context, i);
-                isEnhanced4gLteModeSettingEnabled |=
-                        imsMgr.isEnhanced4gLteModeSettingEnabledByUser();
-                isVolteEnabledByPlatform |= imsMgr.isVolteEnabledByPlatform();
+                int subId = getSubId(context, i);
+                if (SubscriptionManager.isValidSubscriptionId(subId)) {
+                    ImsMmTelManager imsMmTelMgr = ImsMmTelManager.
+                            createForSubscriptionId(subId);
+                    isEnhanced4gLteModeSettingEnabled |=
+                            imsMmTelMgr.isAdvancedCallingSettingEnabled();
+                    if (configManager != null) {
+                        PersistableBundle b = configManager.getConfigForSubId(subId);
+                        if (b != null) {
+                            isVolteEnabledByPlatform |= b.getBoolean(
+                                    CarrierConfigManager.KEY_CARRIER_VOLTE_AVAILABLE_BOOL);
+                        }
+                    }
+                }
             }
         }
         Log.i(LOG_TAG, "unregisteredSpecificImsPhoneCount = " + unregisteredSpecificImsPhoneCount);

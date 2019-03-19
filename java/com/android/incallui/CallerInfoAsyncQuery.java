@@ -161,7 +161,7 @@ public class CallerInfoAsyncQuery {
     cw.countryIso = info.countryIso;
 
     // check to see if these are recognized numbers, and use shortcuts if we can.
-    if (QtiCallUtils.isLocalEmergencyNumber(info.phoneNumber)) {
+    if (QtiCallUtils.isEmergencyNumber(context, info.phoneNumber)) {
       cw.event = EVENT_EMERGENCY_NUMBER;
     } else if (info.isVoiceMailNumber()) {
       cw.event = EVENT_VOICEMAIL_NUMBER;

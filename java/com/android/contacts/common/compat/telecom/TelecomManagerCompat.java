@@ -49,20 +49,4 @@ public class TelecomManagerCompat {
     }
     return null;
   }
-
-  /**
-   * Handovers are supported from Android O-DR onward. Since there is no API bump from O to O-DR, we
-   * need to use reflection to check the existence of TelecomManager.EXTRA_IS_HANDOVER in
-   * http://cs/android/frameworks/base/telecomm/java/android/telecom/TelecomManager.java.
-   */
-  public static boolean supportsHandover() {
-    //
-    try {
-      Field field = TelecomManager.class.getDeclaredField("EXTRA_IS_HANDOVER");
-      return "android.telecom.extra.IS_HANDOVER".equals(field.get(null /* obj (static field) */));
-    } catch (Exception e) {
-      // Do nothing
-    }
-    return false;
-  }
 }

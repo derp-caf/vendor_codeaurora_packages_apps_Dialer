@@ -31,6 +31,7 @@ import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
 import com.android.dialer.enrichedcall.EnrichedCallComponent;
 import com.android.dialer.enrichedcall.EnrichedCallManager;
+import com.android.dialer.theme.base.ThemeComponent;
 import com.android.dialer.util.PermissionsUtil;
 import com.android.dialer.widget.DialerToolbar;
 import com.android.dialer.widget.MessageFragment;
@@ -56,6 +57,7 @@ public class PostCallActivity extends AppCompatActivity implements MessageFragme
   @Override
   protected void onCreate(@Nullable Bundle bundle) {
     super.onCreate(bundle);
+    setTheme(ThemeComponent.get(this).theme().getApplicationThemeRes());
     setContentView(R.layout.post_call_activity);
 
     ((DialerToolbar) findViewById(R.id.toolbar)).setTitle(R.string.post_call_message);

@@ -181,6 +181,7 @@ LOCAL_PACKAGE_NAME := QtiDialer
 LOCAL_CERTIFICATE := shared
 LOCAL_PRIVILEGED_MODULE := true
 LOCAL_USE_AAPT2 := true
+LOCAL_PRODUCT_MODULE := true
 
 # b/37483961 - Jack Not Compiling Dagger Class Properly
 LOCAL_JACK_ENABLED := javac_frontend

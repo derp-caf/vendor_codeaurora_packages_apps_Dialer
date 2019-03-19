@@ -44,6 +44,8 @@ import org.codeaurora.ims.utils.QtiImsExtUtils;
 import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
 
+import java.util.List;
+
 
 /** ViewHolder for call entries in {@link OldCallDetailsActivity} or {@link CallDetailsActivity}. */
 public class CallDetailsEntryViewHolder extends ViewHolder {
@@ -131,17 +133,25 @@ public class CallDetailsEntryViewHolder extends ViewHolder {
             && (entry.getFeatures() & Calls.FEATURES_RTT) == Calls.FEATURES_RTT;
 
     boolean  is4GConferenceEnabledSub = false;
-    SubscriptionInfo si = SubscriptionManager.from(context).
-            getActiveSubscriptionInfoForIccIndex(entry.getAccountId());
-    if (si != null) {
-        int slotId = si.getSimSlotIndex();
-        int subId = si.getSubscriptionId();
-        if (SubscriptionManager.isValidSubscriptionId(subId)) {
-          is4GConferenceEnabledSub = QtiImsExtUtils.isCarrierConfigEnabled(
-              slotId, context, "config_enable_conference_dialer");
-          LogUtil.i("CallDetailsEntryViewHolder.setCallDetails",
-              "is4GConferenceEnabledSub: " + is4GConferenceEnabledSub);
+    SubscriptionManager subManager = context.getSystemService(SubscriptionManager.class);
+    if (subManager != null) {
+      List<SubscriptionInfo> subInfoList = subManager.getActiveSubscriptionInfoList();
+      final String accountId = entry.getAccountId();
+      if (!TextUtils.isEmpty(accountId) && subInfoList != null) {
+        for (SubscriptionInfo subInfo : subInfoList) {
+          if (accountId.equals(subInfo.getIccId())) {
+            int slotId = subInfo.getSimSlotIndex();
+            int subId = subInfo.getSubscriptionId();
+            if (SubscriptionManager.isValidSubscriptionId(subId)) {
+              is4GConferenceEnabledSub = QtiImsExtUtils.isCarrierConfigEnabled(
+                slotId, context, "config_enable_conference_dialer");
+              LogUtil.i("CallDetailsEntryViewHolder.setCallDetails",
+                "is4GConferenceEnabledSub: " + is4GConferenceEnabledSub);
+            }
+            break;
+          }
         }
+      }
     }
 
     callTime.setTextColor(getColorForCallType(context, callType));

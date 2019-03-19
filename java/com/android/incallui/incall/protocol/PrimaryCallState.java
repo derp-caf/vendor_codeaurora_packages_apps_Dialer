@@ -211,6 +211,8 @@ public abstract class PrimaryCallState {
   @Override
   public String toString() {
     return String.format(
-        Locale.US, "PrimaryCallState, state: %d, connectionLabel: %s", state(), connectionLabel());
+        Locale.US, "PrimaryCallState, state: %d, connectionLabel: %s, "
+        + "swapToSecondaryButtonState: %d, sessionModificationState: %d",
+        state(), connectionLabel(), swapToSecondaryButtonState(), sessionModificationState());
   }
 }

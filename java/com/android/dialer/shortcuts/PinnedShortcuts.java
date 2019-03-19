@@ -152,7 +152,8 @@ final class PinnedShortcuts {
     String shortcutDisabledMessage =
         context.getResources().getString(R.string.dialer_shortcut_disabled_message);
     if (!delta.shortcutIdsToDisable.isEmpty()) {
-      shortcutManager.disableShortcuts(delta.shortcutIdsToDisable, shortcutDisabledMessage);
+      shortcutManager.disableShortcuts(delta.shortcutIdsToDisable,
+          (CharSequence) shortcutDisabledMessage);
     }
     if (!delta.shortcutsToUpdateById.isEmpty()) {
       // Note: This call updates both pinned and dynamic shortcuts, but the delta should contain
