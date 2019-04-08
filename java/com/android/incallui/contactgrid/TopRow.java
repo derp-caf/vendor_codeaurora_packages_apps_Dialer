@@ -29,6 +29,7 @@ import android.text.TextUtils;
 import android.text.style.ForegroundColorSpan;
 import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
+import com.android.dialer.configprovider.ConfigProviderComponent;
 import com.android.incallui.call.state.DialerCallState;
 import com.android.incallui.incall.protocol.PrimaryCallState;
 import com.android.incallui.incall.protocol.PrimaryInfo;
@@ -167,14 +168,17 @@ public class TopRow {
     String label =
         context.getString(R.string.contact_grid_incoming_via_template, state.connectionLabel());
     Spannable spannable = new SpannableString(label);
-
-    int start = label.indexOf(state.connectionLabel());
-    int end = start + state.connectionLabel().length();
-    spannable.setSpan(
-        new ForegroundColorSpan(state.primaryColor()),
-        start,
-        end,
-        Spanned.SPAN_INCLUSIVE_EXCLUSIVE);
+    if (ConfigProviderComponent.get(context)
+        .getConfigProvider()
+        .getBoolean("enable_colored_connection_label", false)) {
+      int start = label.indexOf(state.connectionLabel());
+      int end = start + state.connectionLabel().length();
+      spannable.setSpan(
+          new ForegroundColorSpan(state.primaryColor()),
+          start,
+          end,
+          Spanned.SPAN_INCLUSIVE_EXCLUSIVE);
+    }
     return spannable;
   }
 

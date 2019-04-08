@@ -29,6 +29,7 @@ import android.support.annotation.Nullable;
 import android.telecom.PhoneAccount;
 import android.telecom.PhoneAccountHandle;
 import android.telecom.TelecomManager;
+import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.view.MenuItem;
 import android.widget.Toast;
@@ -49,16 +50,36 @@ import java.util.List;
 @SuppressWarnings("FragmentInjection") // Activity not exported
 @UsedByReflection(value = "AndroidManifest-app.xml")
 public class DialerSettingsActivity extends AppCompatPreferenceActivity {
-
+  private static final int MAX_PHONE_COUNT_SINGLE_SIM = 1;
   protected SharedPreferences preferences;
   private boolean migrationStatusOnBuildHeaders;
   private List<Header> headers;
+  private TelephonyManager telephonyManager;
+  private SubscriptionManager subscriptionManager;
+
+  private final SubscriptionManager.OnSubscriptionsChangedListener
+      onSubscriptionsChangeListener =
+      new SubscriptionManager.OnSubscriptionsChangedListener() {
+    private int subId = SubscriptionManager.INVALID_SUBSCRIPTION_ID;
+
+    @Override
+    public void onSubscriptionsChanged() {
+      final int defaultVoiceSubId = SubscriptionManager.getDefaultVoiceSubscriptionId();
+      if (subId != defaultVoiceSubId) {
+        subId = defaultVoiceSubId;
+        invalidateHeaders();
+      }
+    }
+  };
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     LogUtil.enterBlock("DialerSettingsActivity.onCreate");
     super.onCreate(savedInstanceState);
     preferences = PreferenceManager.getDefaultSharedPreferences(this.getApplicationContext());
+
+    telephonyManager = getSystemService(TelephonyManager.class);
+    subscriptionManager = getSystemService(SubscriptionManager.class);
 
     Intent intent = getIntent();
     Uri data = intent.getData();
@@ -86,6 +107,19 @@ public class DialerSettingsActivity extends AppCompatPreferenceActivity {
     if (migrationStatusOnBuildHeaders != FilteredNumberCompat.hasMigratedToNewBlocking(this)) {
       invalidateHeaders();
     }
+    if (subscriptionManager != null
+        && TelephonyManagerCompat.getPhoneCount(telephonyManager) <= MAX_PHONE_COUNT_SINGLE_SIM) {
+      subscriptionManager.addOnSubscriptionsChangedListener(onSubscriptionsChangeListener);
+    }
+  }
+
+  @Override
+  protected void onPause() {
+    if (subscriptionManager != null
+        && TelephonyManagerCompat.getPhoneCount(telephonyManager) <= MAX_PHONE_COUNT_SINGLE_SIM) {
+      subscriptionManager.removeOnSubscriptionsChangedListener(onSubscriptionsChangeListener);
+    }
+    super.onPause();
   }
 
   @Override
@@ -112,20 +146,24 @@ public class DialerSettingsActivity extends AppCompatPreferenceActivity {
     quickResponseSettingsHeader.intent = quickResponseSettingsIntent;
     target.add(quickResponseSettingsHeader);
 
-    TelephonyManager telephonyManager =
-        (TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE);
-
     // "Call Settings" (full settings) is shown if the current user is primary user and there
     // is only one SIM. Otherwise, "Calling accounts" is shown.
     boolean isPrimaryUser = isPrimaryUser();
-    if (isPrimaryUser && TelephonyManagerCompat.getPhoneCount(telephonyManager) <= 1) {
-      Header callSettingsHeader = new Header();
-      Intent callSettingsIntent = new Intent(TelecomManager.ACTION_SHOW_CALL_SETTINGS);
-      callSettingsIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+    if (isPrimaryUser
+        && TelephonyManagerCompat.getPhoneCount(telephonyManager) <= MAX_PHONE_COUNT_SINGLE_SIM) {
+      if (subscriptionManager != null
+          && subscriptionManager.getActiveSubscriptionInfoCount() > 0) {
+        Header callSettingsHeader = new Header();
+        Intent callSettingsIntent = new Intent(TelecomManager.ACTION_SHOW_CALL_SETTINGS);
+        callSettingsIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
 
-      callSettingsHeader.titleRes = R.string.call_settings_label;
-      callSettingsHeader.intent = callSettingsIntent;
-      target.add(callSettingsHeader);
+        callSettingsHeader.titleRes = R.string.call_settings_label;
+        callSettingsHeader.intent = callSettingsIntent;
+        target.add(callSettingsHeader);
+      } else {
+        LogUtil.i(
+            "DialerSettingsActivity.onBuildHeaders", "No available SIM");
+      }
     } else {
       Header phoneAccountSettingsHeader = new Header();
       Intent phoneAccountSettingsIntent = new Intent(TelecomManager.ACTION_CHANGE_PHONE_ACCOUNTS);

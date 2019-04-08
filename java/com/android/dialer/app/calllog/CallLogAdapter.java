@@ -680,6 +680,7 @@ public class CallLogAdapter extends GroupingListAdapter
   public void onResume() {
     contactsProviderMatchInfos.clear();
     if (PermissionsUtil.hasPermission(activity, android.Manifest.permission.READ_CONTACTS)) {
+      contactInfoCache.enableRequestProcessing();
       contactInfoCache.start();
     }
     isSpamEnabled = SpamComponent.get(activity).spamSettings().isSpamEnabled();

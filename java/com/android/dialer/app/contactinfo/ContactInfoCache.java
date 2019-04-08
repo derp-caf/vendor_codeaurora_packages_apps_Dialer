@@ -136,7 +136,7 @@ public class ContactInfoCache {
             : ContactInfoRequest.TYPE_LOCAL;
     if (cachedInfo == null) {
       if (isConf) {
-        cachedInfo = cacheFor4gConfCall.getCachedValue(numberCountryIso);
+        cacheFor4gConfCall.put(numberCountryIso, ContactInfo.EMPTY);
       } else {
         cache.put(numberCountryIso, ContactInfo.EMPTY);
       }
@@ -295,7 +295,6 @@ public class ContactInfoCache {
    * started.
    */
   private synchronized void startRequestProcessing() {
-    // For unit-testing.
     if (requestProcessingDisabled) {
       return;
     }
@@ -313,7 +312,8 @@ public class ContactInfoCache {
   public void invalidate() {
     cache.expireAll();
     cacheFor4gConfCall.expireAll();
-    stopRequestProcessing();
+    // Here stopRequestProcessing can't be called because the thread starting
+    // request might be canceled within 1 sencond for refreshing data.
   }
 
   /**
@@ -392,6 +392,10 @@ public class ContactInfoCache {
   /** Sets whether processing of requests for contact details should be enabled. */
   public void disableRequestProcessing() {
     requestProcessingDisabled = true;
+  }
+
+  public void enableRequestProcessing() {
+    requestProcessingDisabled = false;
   }
 
   @VisibleForTesting
