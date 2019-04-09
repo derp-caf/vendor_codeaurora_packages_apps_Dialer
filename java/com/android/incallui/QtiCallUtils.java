@@ -71,7 +71,7 @@ public class QtiCallUtils {
     public static boolean isEmergencyNumber(Context context, String number) {
         TelephonyManager telephonyManager =
                 (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
-        return telephonyManager.isCurrentEmergencyNumber(number);
+        return telephonyManager.isEmergencyNumber(number);
     }
 
    /**
