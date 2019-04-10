@@ -38,7 +38,6 @@
   <uses-permission android:name="android.permission.PROCESS_OUTGOING_CALLS"/>
   <uses-permission android:name="android.permission.NFC"/>
   <uses-permission android:name="android.permission.READ_PHONE_STATE"/>
-  <uses-permission android:name="android.permission.READ_PRIVILEGED_PHONE_STATE"/>
   <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
   <uses-permission android:name="android.permission.MODIFY_PHONE_STATE"/>
   <uses-permission android:name="android.permission.WAKE_LOCK"/>
@@ -57,6 +56,9 @@
   <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
   <uses-permission android:name="android.permission.SEND_SMS"/>
   <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+  <uses-permission android:name="android.permission.CONNECTIVITY_USE_RESTRICTED_NETWORKS"/>
+  <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
+  <uses-permission android:name="android.permission.READ_PRIVILEGED_PHONE_STATE"/>
 
   <uses-permission android:name="android.permission.CONTROL_INCALL_EXPERIENCE"/>
   <!-- We use this to disable the status bar buttons of home, back and recent
