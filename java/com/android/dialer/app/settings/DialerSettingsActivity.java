@@ -76,11 +76,11 @@ public class DialerSettingsActivity extends AppCompatPreferenceActivity {
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     LogUtil.enterBlock("DialerSettingsActivity.onCreate");
-    super.onCreate(savedInstanceState);
-    preferences = PreferenceManager.getDefaultSharedPreferences(this.getApplicationContext());
-
     telephonyManager = getSystemService(TelephonyManager.class);
     subscriptionManager = getSystemService(SubscriptionManager.class);
+
+    super.onCreate(savedInstanceState);
+    preferences = PreferenceManager.getDefaultSharedPreferences(this.getApplicationContext());
 
     Intent intent = getIntent();
     Uri data = intent.getData();
