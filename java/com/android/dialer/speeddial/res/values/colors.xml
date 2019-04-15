@@ -15,4 +15,9 @@
   ~ limitations under the License
   -->
 <resources>
+  <color name="actionbar_background_color">#2A56C6</color>
+  <color name="background_dialer_light">#fafafa</color>
+  <color name="background_dialer_results">#f9f9f9</color>
+  <color name="contact_list_name_text_color">#333333</color>
+  <color name="setting_primary_color">#333333</color>
 </resources>

@@ -191,6 +191,7 @@ public class BottomSheetHelper implements PrimaryCallTracker.PrimaryCallChangeLi
        maybeUpdateDialpadOptionInMap();
        maybeUpdateCancelModifyCallInMap();
        maybeUpdatePipModeInMap();
+       maybeUpdateTirAcceptOptionsInMap();
      }
    }
 
@@ -329,6 +330,11 @@ public class BottomSheetHelper implements PrimaryCallTracker.PrimaryCallChangeLi
        displayCancelModifyCallOptions();
      } else if (text.equals(mResources.getString(R.string.pipModeLabel))) {
        VideoCallPresenter.showPipModeMenu();
+     } else if (text.equals(mResources.getString(R.string.accept_call_with_tir_restricted_label))) {
+        acceptIncomingCallWithTir(QtiImsExtUtils.QTI_IMS_TIR_PRESENTATION_RESTRICTED);
+     } else if (text.equals(mResources.getString(
+            R.string.accept_call_with_tir_unrestricted_label))) {
+        acceptIncomingCallWithTir(QtiImsExtUtils.QTI_IMS_TIR_PRESENTATION_UNRESTRICTED);
      }
      moreOptionsSheet = null;
    }
@@ -364,7 +370,8 @@ public class BottomSheetHelper implements PrimaryCallTracker.PrimaryCallChangeLi
            || DialerCallState.DISCONNECTING == primaryCallState
            || call.hasSentVideoUpgradeRequest()
            || !(getPhoneIdExtra(call) != QtiCallConstants.INVALID_PHONE_ID))
-           || isCancelModifyCallOptionsVisible();
+           || isCancelModifyCallOptionsVisible()
+           || canDisplayAcceptWithTirOptionsButtons();
        }
      }
      LogUtil.w("BottomSheetHelper shallShowMoreButton","returns false");
@@ -903,5 +910,48 @@ public class BottomSheetHelper implements PrimaryCallTracker.PrimaryCallChangeLi
     private boolean canDisplayScreenShareButton() {
       return Settings.Global.getInt(mContext.getContentResolver(),
           "enable_screen_share", 0) == 1;
+    }
+
+    private boolean canDisplayAcceptWithTirOptionsButtons() {
+      boolean showAcceptWithTirOptions = false;
+      if (mCall == null) {
+        LogUtil.d("BottomSheetHelper.canDisplayAcceptWithTirOptionsButtons",
+                "mCall is null");
+        return false;
+      }
+      final int primaryCallState = mCall.getState();
+      if (primaryCallState == DialerCallState.INCOMING ||
+          primaryCallState == DialerCallState.CALL_WAITING) {
+            Bundle extras = mCall.getExtras();
+            showAcceptWithTirOptions = (extras == null) ? false :
+                extras.getBoolean(QtiImsExtUtils.EXTRA_TIR_OVERWRITE_ALLOWED, false);
+      }
+      return showAcceptWithTirOptions;
+    }
+
+    private void maybeUpdateTirAcceptOptionsInMap() {
+        boolean visible = canDisplayAcceptWithTirOptionsButtons();
+        moreOptionsMap.put(mResources.getString(
+                R.string.accept_call_with_tir_restricted_label), visible);
+        moreOptionsMap.put(mResources.getString(
+                R.string.accept_call_with_tir_unrestricted_label), visible);
+    }
+
+    private void acceptIncomingCallWithTir(int presentation) {
+        LogUtil.enterBlock("BottomSheetHelper.acceptIncomingCallWithTir");
+        if (mCall == null) {
+            LogUtil.d("BottomSheetHelper.acceptIncomingCallWithTir", "mCall is null");
+            return;
+        }
+        try {
+            Bundle extra = new Bundle();
+            extra.putInt(QtiImsExtUtils.EXTRA_ANSWER_OPTION_TIR_CONFIG,
+                presentation);
+            mQtiImsExtManager.setAnswerExtras(getPhoneId(), extra);
+            acceptIncomingCallOrUpgradeRequest(mCall.getVideoState());
+        } catch (QtiImsException e) {
+            LogUtil.e("BottomSheetHelper.acceptIncomingCallWithTir",
+                "setAnswerExtras exception " + e);
+        }
     }
 }

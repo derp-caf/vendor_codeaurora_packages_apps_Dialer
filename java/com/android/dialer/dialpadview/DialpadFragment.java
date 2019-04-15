@@ -25,6 +25,7 @@ import android.app.Fragment;
 import android.content.BroadcastReceiver;
 import android.content.ContentResolver;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.res.Configuration;
@@ -81,6 +82,9 @@ import com.android.contacts.common.dialog.CallSubjectDialog;
 import com.android.contacts.common.util.StopWatch;
 import com.android.dialer.animation.AnimUtils;
 import com.android.dialer.animation.AnimUtils.AnimationCallback;
+import com.android.dialer.app.DialtactsActivity;
+import com.android.dialer.app.settings.SpeedDialListActivity;
+import com.android.dialer.app.settings.SpeedDialUtils;
 import com.android.dialer.callintent.CallInitiationType;
 import com.android.dialer.callintent.CallIntentBuilder;
 import com.android.dialer.common.Assert;
@@ -98,6 +102,7 @@ import com.android.dialer.precall.PreCall;
 import com.android.dialer.proguard.UsedByReflection;
 import com.android.dialer.telecom.TelecomUtil;
 import com.android.dialer.util.CallUtil;
+import com.android.dialer.util.DialerUtils;
 import com.android.dialer.util.PermissionsUtil;
 import com.android.dialer.util.ViewUtil;
 import com.android.dialer.widget.FloatingActionButtonController;
@@ -719,9 +724,13 @@ public class DialpadFragment extends Fragment
 
     DialpadKeyButton dialpadKey;
 
-    for (int buttonId : buttonIds) {
-      dialpadKey = fragmentView.findViewById(buttonId);
+    for (int i = 0; i < buttonIds.length; i++) {
+      dialpadKey = fragmentView.findViewById(buttonIds[i]);
       dialpadKey.setOnPressedListener(this);
+      // Long-pressing button from two to nine will set up speed key dial.
+      if (i > 0 && i < buttonIds.length - 3) {
+        dialpadKey.setOnLongClickListener(this);
+      }
     }
 
     // Long-pressing one button will initiate Voicemail.
@@ -1058,10 +1067,11 @@ public class DialpadFragment extends Fragment
   public boolean onLongClick(View view) {
     final Editable digits = this.digits.getText();
     final int id = view.getId();
-    if (id == R.id.deleteButton) {
-      digits.clear();
-      return true;
-    } else if (id == R.id.one) {
+    switch (id) {
+      case R.id.deleteButton:
+        digits.clear();
+        return true;
+      case R.id.one:
       // For non-talkback users: check for empty
       // For linear navigation users: check for "1"
       // For explore by touch users: check for "11"
@@ -1106,7 +1116,7 @@ public class DialpadFragment extends Fragment
         return true;
       }
       return false;
-    } else if (id == R.id.zero) {
+    case R.id.zero:
       if (pressedDialpadKeys.contains(view)) {
         // If the zero key is currently pressed, then the long press occurred by touch
         // (and not via other means like certain accessibility input methods).
@@ -1118,8 +1128,31 @@ public class DialpadFragment extends Fragment
       stopTone();
       pressedDialpadKeys.remove(view);
       return true;
-    } else if (id == R.id.digits) {
+    case R.id.digits:
       this.digits.setCursorVisible(true);
+      return false;
+    case R.id.two:
+    case R.id.three:
+    case R.id.four:
+    case R.id.five:
+    case R.id.six:
+    case R.id.seven:
+    case R.id.eight:
+    case R.id.nine:
+        if (this.digits.length() == 1) {
+          final boolean isAirplaneModeOn =
+              Settings.System.getInt(getActivity().getContentResolver(),
+              Settings.System.AIRPLANE_MODE_ON, 0) != 0;
+          if (isAirplaneModeOn) {
+            DialogFragment dialogFragment = ErrorDialogFragment.newInstance(
+                R.string.dialog_speed_dial_airplane_mode_message);
+            dialogFragment.show(getFragmentManager(),
+                "speed_dial_request_during_airplane_mode");
+          } else {
+            callSpeedNumber(id);
+          }
+          return true;
+        }
       return false;
     }
     return false;
@@ -2118,4 +2151,49 @@ public class DialpadFragment extends Fragment
       return rawNumberBuilder.toString();
     }
   }
+
+  private void callSpeedNumber(int id) {
+      int number;
+
+    switch(id) {
+      case R.id.two: number = 2; break;
+      case R.id.three: number = 3; break;
+      case R.id.four: number = 4; break;
+      case R.id.five: number = 5; break;
+      case R.id.six: number = 6; break;
+      case R.id.seven: number = 7; break;
+      case R.id.eight: number = 8; break;
+      case R.id.nine: number = 9; break;
+      default: return;
+    }
+
+    String phoneNumber = SpeedDialUtils.getNumber(getActivity(), number);
+    if (phoneNumber == null) {
+      showNoSpeedNumberDialog(number);
+    } else {
+      final DialtactsActivity activity = getActivity() instanceof DialtactsActivity
+          ? (DialtactsActivity) getActivity() : null;
+      final Intent intent =
+          new CallIntentBuilder(phoneNumber, CallInitiationType.Type.DIALPAD).build();
+      DialerUtils.startActivityWithErrorToast(getActivity(), intent);
+      hideAndClearDialpad();
+    }
+  }
+
+  private void showNoSpeedNumberDialog(final int number) {
+    new AlertDialog.Builder(getActivity())
+        .setTitle(R.string.speed_dial_unassigned_dialog_title)
+        .setMessage(getString(R.string.speed_dial_unassigned_dialog_message, number))
+        .setPositiveButton(R.string.yes, new DialogInterface.OnClickListener() {
+          @Override
+          public void onClick(DialogInterface dialog, int which) {
+            // go to speed dial setting screen to set speed dial number.
+            Intent intent = new Intent(getActivity(), SpeedDialListActivity.class);
+            startActivity(intent);
+          }
+        })
+        .setNegativeButton(R.string.no, null)
+        .show();
+  }
+
 }

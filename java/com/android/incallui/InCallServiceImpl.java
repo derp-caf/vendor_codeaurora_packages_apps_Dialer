@@ -32,6 +32,8 @@ import com.android.incallui.call.TelecomAdapter;
 import com.android.incallui.speakeasy.SpeakEasyCallManager;
 import com.android.incallui.speakeasy.SpeakEasyComponent;
 
+import org.codeaurora.ims.utils.QtiCarrierConfigHelper;
+
 /**
  * Used to receive updates about calls from the Telecom component. This service is bound to Telecom
  * while there exist calls which potentially require UI. This includes ringing (incoming), dialing
@@ -95,6 +97,7 @@ public class InCallServiceImpl extends InCallService {
   public IBinder onBind(Intent intent) {
     Trace.beginSection("InCallServiceImpl.onBind");
     final Context context = getApplicationContext();
+    QtiCarrierConfigHelper.getInstance().setup(context);
     final ContactInfoCache contactInfoCache = ContactInfoCache.getInstance(context);
     AudioModeProvider.getInstance().initializeAudioState(this);
     InCallPresenter.getInstance()
@@ -148,6 +151,7 @@ public class InCallServiceImpl extends InCallService {
       CallList.getInstance().removeListener(feedbackListener);
       feedbackListener = null;
     }
+    QtiCarrierConfigHelper.getInstance().teardown();
     Trace.endSection();
   }
 }

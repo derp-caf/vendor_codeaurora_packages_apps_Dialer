@@ -30,4 +30,5 @@
     <string name="tab_title_voicemail" msgid="4777655983569268504">"留言"</string>
     <string name="settings" msgid="7614336599112169779">"設定"</string>
     <string name="main_send_feedback" msgid="2446919533981327373">"提供意見"</string>
+    <string name="main_menu_call_history">"通話記錄"</string>
 </resources>

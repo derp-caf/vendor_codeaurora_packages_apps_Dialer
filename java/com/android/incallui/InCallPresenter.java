@@ -210,6 +210,9 @@ public class InCallPresenter implements CallList.Listener, AudioModeProvider.Aud
 
   private boolean screenTimeoutEnabled = true;
 
+  private boolean automaticallyMutedByAddCall = false;
+  private boolean previousMuteState = false;
+
   private PhoneStateListener phoneStateListener =
       new PhoneStateListener() {
         @Override
@@ -1731,6 +1734,9 @@ public class InCallPresenter implements CallList.Listener, AudioModeProvider.Aud
         LogUtil.e("InCallPresenter.attemptCleanup", "held in call locks: " + inCallUiLocks);
         inCallUiLocks.clear();
       }
+
+      automaticallyMutedByAddCall = false;
+      previousMuteState = false;
       LogUtil.d("InCallPresenter.attemptCleanup", "finished");
     }
   }
@@ -2104,4 +2110,20 @@ public class InCallPresenter implements CallList.Listener, AudioModeProvider.Aud
   }
 
   private final Set<InCallUiLock> inCallUiLocks = new ArraySet<>();
+
+  public void setPreviousMuteState(boolean checked) {
+    previousMuteState = checked;
+  }
+
+  public boolean getPreviousMuteState() {
+    return previousMuteState;
+  }
+
+  public void setAutomaticallyMutedByAddCall(boolean mute) {
+    automaticallyMutedByAddCall = mute;
+  }
+
+  public boolean getAutomaticallyMutedByAddCall() {
+    return automaticallyMutedByAddCall;
+  }
 }

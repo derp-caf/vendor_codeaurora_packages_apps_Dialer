@@ -72,8 +72,6 @@ public class CallButtonPresenter
   private final Context context;
   private InCallButtonUi inCallButtonUi;
   private DialerCall call;
-  private boolean automaticallyMutedByAddCall = false;
-  private boolean previousMuteState = false;
   private boolean isInCallButtonUiReady;
   private PhoneAccountHandle otherAccount;
   private static final int MAX_PARTICIPANTS_LIMIT = 6;
@@ -306,15 +304,16 @@ public class CallButtonPresenter
             DialerImpression.Type.IN_CALL_ADD_CALL_BUTTON_PRESSED,
             call.getUniqueCallId(),
             call.getTimeAddedMs());
-    if (automaticallyMutedByAddCall) {
+    InCallPresenter inCallPresenter = InCallPresenter.getInstance();
+    if (inCallPresenter.getAutomaticallyMutedByAddCall()) {
       // Since clicking add call button brings user to MainActivity and coming back refreshes mute
       // state, add call button should only be clicked once during InCallActivity shows. Otherwise,
       // we set previousMuteState wrong.
       return;
     }
     // Automatically mute the current call
-    automaticallyMutedByAddCall = true;
-    previousMuteState = AudioModeProvider.getInstance().getAudioState().isMuted();
+    inCallPresenter.setAutomaticallyMutedByAddCall(true);
+    inCallPresenter.setPreviousMuteState(AudioModeProvider.getInstance().getAudioState().isMuted());
     // Simulate a click on the mute button
     muteClicked(true /* checked */, false /* clickedByUser */);
     TelecomAdapter.getInstance().addCall();
@@ -619,28 +618,24 @@ public class CallButtonPresenter
   @Override
   public void refreshMuteState() {
     // Restore the previous mute state
-    if (automaticallyMutedByAddCall
-        && AudioModeProvider.getInstance().getAudioState().isMuted() != previousMuteState) {
+    InCallPresenter inCallPresenter = InCallPresenter.getInstance();
+    if (inCallPresenter.getAutomaticallyMutedByAddCall()
+        && AudioModeProvider.getInstance().getAudioState().isMuted() !=
+        inCallPresenter.getPreviousMuteState()) {
       if (inCallButtonUi == null) {
         return;
       }
-      muteClicked(previousMuteState, false /* clickedByUser */);
+      muteClicked(inCallPresenter.getPreviousMuteState(), false /* clickedByUser */);
     }
-    automaticallyMutedByAddCall = false;
+    inCallPresenter.setAutomaticallyMutedByAddCall(false);
   }
 
   @Override
   public void onSaveInstanceState(Bundle outState) {
-    outState.putBoolean(KEY_AUTOMATICALLY_MUTED_BY_ADD_CALL, automaticallyMutedByAddCall);
-    outState.putBoolean(KEY_PREVIOUS_MUTE_STATE, previousMuteState);
   }
 
   @Override
   public void onRestoreInstanceState(Bundle savedInstanceState) {
-    automaticallyMutedByAddCall =
-        savedInstanceState.getBoolean(
-            KEY_AUTOMATICALLY_MUTED_BY_ADD_CALL, automaticallyMutedByAddCall);
-    previousMuteState = savedInstanceState.getBoolean(KEY_PREVIOUS_MUTE_STATE, previousMuteState);
   }
 
   @Override

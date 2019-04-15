@@ -31,4 +31,5 @@
     <string name="settings" msgid="7614336599112169779">"设置"</string>
     <string name="main_send_feedback" msgid="2446919533981327373">"发送反馈"</string>
     <string name="menu_4g_conference_call" msgid="2446919533981327373">"4G电话会议"</string>
+    <string name="main_menu_call_history">"通话记录"</string>
 </resources>

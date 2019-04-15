@@ -34,6 +34,7 @@ import android.telephony.TelephonyManager;
 import android.view.MenuItem;
 import android.widget.Toast;
 import com.android.dialer.about.AboutPhoneFragment;
+import com.android.dialer.app.settings.SpeedDialListActivity;
 import com.android.dialer.app.R;
 import com.android.dialer.assisteddialing.ConcreteCreator;
 import com.android.dialer.blocking.FilteredNumberCompat;
@@ -145,6 +146,14 @@ public class DialerSettingsActivity extends AppCompatPreferenceActivity {
     quickResponseSettingsHeader.titleRes = R.string.respond_via_sms_setting_title;
     quickResponseSettingsHeader.intent = quickResponseSettingsIntent;
     target.add(quickResponseSettingsHeader);
+
+    Header speedDialSettingsHeader = new Header();
+    Intent speedDialSettingsIntent = new Intent(this, SpeedDialListActivity.class);
+    speedDialSettingsIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+
+    speedDialSettingsHeader.titleRes = R.string.speed_dial_settings;
+    speedDialSettingsHeader.intent = speedDialSettingsIntent;
+    target.add(speedDialSettingsHeader);
 
     // "Call Settings" (full settings) is shown if the current user is primary user and there
     // is only one SIM. Otherwise, "Calling accounts" is shown.
