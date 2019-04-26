@@ -508,7 +508,7 @@ public class CallCardPresenter
                       && primary.isVideoCall())
                   .setSessionModificationState(primary.getVideoTech().getSessionModificationState())
                   .setDisconnectCause(primary.getDisconnectCause())
-                  .setConnectionLabel(getConnectionLabel() + "  " + (isPrimaryCallActive() ?
+                  .setConnectionLabel(getConnectionLabel() + (isPrimaryCallActive() ? "  " +
                       (isOutgoingEmergencyCall(primary) ?
                       primary.getNumber() : primaryLocation) : ""))
                   .setPrimaryColor(

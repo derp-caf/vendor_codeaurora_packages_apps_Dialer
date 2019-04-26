@@ -102,6 +102,7 @@ import java.util.Objects;
 /** This class adds Notifications to the status bar for the in-call experience. */
 public class StatusBarNotifier
     implements InCallPresenter.InCallStateListener,
+        InCallPresenter.IncomingCallListener,
         EnrichedCallManager.StateChangedListener,
         ContactInfoCacheCallback {
 
@@ -188,6 +189,12 @@ public class StatusBarNotifier
   @Override
   public void onEnrichedCallStateChanged() {
     LogUtil.enterBlock("StatusBarNotifier.onEnrichedCallStateChanged");
+    updateNotification();
+  }
+
+  @Override
+  public void onIncomingCall(InCallState oldState, InCallState newState, DialerCall call) {
+    LogUtil.enterBlock("StatusBarNotifier.onIncomingCall");
     updateNotification();
   }
 
