@@ -886,6 +886,11 @@ public class VideoCallFragment extends Fragment
     // Once complete, set bitmap/pause image.
     @Override
     protected void onPostExecute(Bitmap bitmap) {
+      if (!isAdded()) {
+          LogUtil.w("VideoCallFragment.onPostExecute", "fragment is not attached");
+          return;
+      }
+
       boolean useDefaultImage = bitmap == null;
       LogUtil.d("VideoCallFragment.onPostExecute", "bitmap = " + bitmap);
       videoCallScreenDelegate.setUseDefaultImage(useDefaultImage);
