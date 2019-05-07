@@ -38,6 +38,7 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.Context;
 import android.database.Cursor;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.ContactsContract;
@@ -335,24 +336,7 @@ public class SpeedDialListActivity extends ListActivity implements
 
     @Override
     public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
-        if (position == 0) {
-            Intent intent = new Intent(ACTION_ADD_VOICEMAIL);
-            intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
-            if (mTelephonyManager != null &&
-                mTelephonyManager.getPhoneCount() > 1) {
-                int sub = SubscriptionManager.getDefaultVoiceSubscriptionId();
-                SubscriptionInfo subInfo = mSubscriptionManager.getActiveSubscriptionInfo(sub);
-                if (subInfo != null) {
-                    intent.putExtra(SUB_ID_EXTRA, subInfo.getSubscriptionId());
-                    intent.putExtra(SUB_LABEL_EXTRA, subInfo.getDisplayName().toString());
-                }
-            }
-            try {
-                startActivity(intent);
-            } catch(ActivityNotFoundException e) {
-                Log.w(TAG, "Could not find voice mail setup activity");
-            }
-        } else {
+        if (position != 0) {
             int number = position + 1;
             mItemPosition = number;
             final Record record = mRecords.get(number);
@@ -480,6 +464,7 @@ public class SpeedDialListActivity extends ListActivity implements
             Record record = mRecords.get(position + 1);
 
             index.setText(String.valueOf(position + 1));
+
             if (record != null && record.name != null) {
                 name.setText(record.name);
                 number.setText(record.number);
@@ -503,6 +488,11 @@ public class SpeedDialListActivity extends ListActivity implements
                 photo.setVisibility(View.GONE);
             }
             photo.setOverlay(null);
+
+            if (position == 0) {
+                index.setEnabled(false);
+                name.setTextColor(Color.GRAY);
+            }
 
             return convertView;
         }

@@ -27,8 +27,6 @@ import android.graphics.Point;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Animatable;
 import android.os.AsyncTask;
-import android.os.Build.VERSION;
-import android.os.Build.VERSION_CODES;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.provider.Settings;
@@ -56,7 +54,6 @@ import android.view.View.OnSystemUiVisibilityChangeListener;
 import android.view.ViewGroup;
 import android.view.ViewGroup.MarginLayoutParams;
 import android.view.ViewOutlineProvider;
-import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.animation.AccelerateDecelerateInterpolator;
 import android.view.animation.Interpolator;
@@ -224,13 +221,6 @@ public class VideoCallFragment extends Fragment
   public void onCreate(@Nullable Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     LogUtil.i("VideoCallFragment.onCreate", null);
-
-    if (VERSION.SDK_INT >= VERSION_CODES.P) {
-        WindowManager.LayoutParams lp = getActivity().getWindow().getAttributes();
-        lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams
-            .LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
-        getActivity().getWindow().setAttributes(lp);
-    }
     inCallButtonUiDelegate =
         FragmentUtils.getParent(this, InCallButtonUiDelegateFactory.class)
             .newInCallButtonUiDelegate();

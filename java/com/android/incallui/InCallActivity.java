@@ -275,6 +275,10 @@ public class InCallActivity extends TransactionSafeFragmentActivity
     MetricsComponent.get(this)
         .metrics()
         .stopTimer(Metrics.ON_CALL_ADDED_TO_ON_INCALL_UI_SHOWN_OUTGOING);
+    WindowManager.LayoutParams lp = getWindow().getAttributes();
+    lp.layoutInDisplayCutoutMode =
+        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_NEVER;
+    getWindow().setAttributes(lp);
   }
 
   public void onActivityResult(int requestCode, int resultCode, Intent data) {
