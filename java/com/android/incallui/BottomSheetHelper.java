@@ -163,8 +163,10 @@ public class BottomSheetHelper implements PrimaryCallTracker.PrimaryCallChangeLi
        mPrimaryCallTracker = null;
      }
      mIsHideMe = false;
-     mQtiImsExtConnector.disconnect();
-     mQtiImsExtConnector = null;
+     if (mQtiImsExtConnector != null) {
+       mQtiImsExtConnector.disconnect();
+       mQtiImsExtConnector = null;
+     }
      mQtiImsExtManager = null;
      mContext = null;
      mResources = null;

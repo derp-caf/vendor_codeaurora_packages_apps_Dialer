@@ -179,17 +179,19 @@ public class CallLogFragment extends Fragment
   // Key for the call log sub saved in the default preference
   private static final String PREFERENCE_KEY_CALLLOG_SLOT = "call_log_slot";
   private static final int INVALID_SIM_SLOT_INDEX = -1;
-  // Default to all slots
-  private int callSlotFilter = INVALID_SIM_SLOT_INDEX;
+  private SpinnerContent currentSlotSpinner = null;
   private boolean isFilteringSupported;
   private OnItemSelectedListener slotSelectedListener = new OnItemSelectedListener() {
     @Override
     public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
       LogUtil.d("Slot selected, position: " + position, toString());
-      int slot = position - 1;
-      if (slot != callSlotFilter) {
-        callSlotFilter = slot;
-        setSelectedSlotId(slot);
+      final SpinnerContent selectedSpinner =
+          (SpinnerContent)parent.getItemAtPosition(position);
+      if (currentSlotSpinner == null
+          || (currentSlotSpinner != null
+              && currentSlotSpinner.value != selectedSpinner.value)) {
+        currentSlotSpinner = selectedSpinner;
+        setSelectedSlotId(position - 1);
         fetchCalls();
       }
     }
@@ -574,13 +576,8 @@ public class CallLogFragment extends Fragment
   @Override
   public void fetchCalls() {
     if (isFilteringSupported) {
-      if (callSlotFilter != INVALID_SIM_SLOT_INDEX) {
-        SubscriptionInfo subInfo = SubscriptionManager.from(getActivity())
-            .getActiveSubscriptionInfoForSimSlotIndex(callSlotFilter);
-        if (subInfo != null) {
-          callLogQueryHandler.fetchCalls(callTypeFilter, dateLimit,
-              subInfo.getIccId());
-        }
+      if (currentSlotSpinner != null && currentSlotSpinner.value != INVALID_SIM_SLOT_INDEX) {
+        callLogQueryHandler.fetchCalls(callTypeFilter, dateLimit, currentSlotSpinner.accountId);
       } else {
         callLogQueryHandler.fetchCalls(callTypeFilter, dateLimit);
       }
@@ -845,10 +842,9 @@ public class CallLogFragment extends Fragment
       if (filterSlotAdapter.getCount() <= 1) {
         filterSlotSpinnerView.setVisibility(View.GONE);
       } else{
-        callSlotFilter = getSelectedSlotId();
         filterSlotSpinnerView.setAdapter(filterSlotAdapter);
         filterSlotSpinnerView.setOnItemSelectedListener(slotSelectedListener);
-        SpinnerContent.setSpinnerContentValue(filterSlotSpinnerView, callSlotFilter);
+        SpinnerContent.setSpinnerContentValue(filterSlotSpinnerView, getSelectedSlotId());
       }
     }
     // Update the status filter's content.

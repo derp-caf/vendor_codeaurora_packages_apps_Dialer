@@ -30,6 +30,7 @@ import com.android.dialer.interactions.PhoneNumberInteraction.InteractionErrorLi
 import com.android.dialer.main.MainActivityPeer;
 import com.android.dialer.main.impl.bottomnav.BottomNavBar.TabIndex;
 import com.android.dialer.util.TransactionSafeActivity;
+import org.codeaurora.ims.utils.QtiCarrierConfigHelper;
 
 /** This is the main activity for dialer. It hosts favorites, call log, search, dialpad, etc... */
 // TODO(calderwoodra): Do not extend TransactionSafeActivity after new SpeedDial is launched
@@ -101,7 +102,7 @@ public class MainActivity extends TransactionSafeActivity
   protected void onResume() {
     super.onResume();
     activePeer.onActivityResume();
-
+    QtiCarrierConfigHelper.getInstance().setup(getApplicationContext());
     LocalBroadcastManager.getInstance(this)
         .registerReceiver(
             showBlockReportSpamDialogReceiver, ShowBlockReportSpamDialogReceiver.getIntentFilter());
@@ -117,7 +118,7 @@ public class MainActivity extends TransactionSafeActivity
   protected void onPause() {
     super.onPause();
     activePeer.onActivityPause();
-
+    QtiCarrierConfigHelper.getInstance().teardown();
     LocalBroadcastManager.getInstance(this).unregisterReceiver(showBlockReportSpamDialogReceiver);
   }
 

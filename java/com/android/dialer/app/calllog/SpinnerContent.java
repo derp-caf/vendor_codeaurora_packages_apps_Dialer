@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved
+* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved
 * Not a Contribution.
 * Copyright (C) 2014 The CyanogenMod Project
 *
@@ -34,6 +34,7 @@ import java.util.List;
 public class SpinnerContent {
   public final int value;
   public final String label;
+  public final String accountId;
   // The index for call type spinner.
   private static final int INVALID_SIM_SLOT_INDEX = -1;
   private static final int INDEX_CALL_TYPE_ALL = 0;
@@ -54,9 +55,10 @@ public class SpinnerContent {
     }
   }
 
-  public SpinnerContent(int value, String label) {
+  public SpinnerContent(int value, String label, String accountId) {
     this.value = value;
     this.label = label;
+    this.accountId = accountId;
   }
 
   @Override
@@ -73,12 +75,12 @@ public class SpinnerContent {
       // Update the filter sub content.
       ArrayList<SpinnerContent> values = new ArrayList<SpinnerContent>(counts.size() + 1);
       values.add(new SpinnerContent(INVALID_SIM_SLOT_INDEX,
-          context.getString(R.string.call_log_show_all_slots)));
+          context.getString(R.string.call_log_show_all_slots), null));
       int index = 0;
       for (PhoneAccountHandle acountHandle : counts) {
         String subDisplayName = PhoneAccountUtils.getAccountLabel(context, acountHandle);
         if (!TextUtils.isEmpty(subDisplayName)) {
-          values.add(new SpinnerContent(index, subDisplayName));
+          values.add(new SpinnerContent(index, subDisplayName, acountHandle.getId()));
         }
         ++index;
       }
@@ -119,7 +121,7 @@ public class SpinnerContent {
           label = context.getString(R.string.call_log_voicemail_header);
            break;
       }
-      values.add(new SpinnerContent(value, label));
+      values.add(new SpinnerContent(value, label, null));
     }
     return values;
   }
