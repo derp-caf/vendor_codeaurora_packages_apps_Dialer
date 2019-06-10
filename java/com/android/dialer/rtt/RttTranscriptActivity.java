@@ -29,6 +29,7 @@ import com.android.dialer.common.concurrent.DialerExecutorComponent;
 import com.android.dialer.common.concurrent.UiListener;
 import com.android.dialer.glidephotomanager.PhotoInfo;
 import com.android.dialer.protos.ProtoParsers;
+import com.android.dialer.theme.base.ThemeComponent;
 import com.android.dialer.widget.DialerToolbar;
 
 /** Activity holds RTT transcript. */
@@ -54,6 +55,7 @@ public class RttTranscriptActivity extends AppCompatActivity {
   @Override
   protected void onCreate(@Nullable Bundle bundle) {
     super.onCreate(bundle);
+    setTheme(ThemeComponent.get(this).theme().getApplicationThemeRes());
     setContentView(R.layout.activity_rtt_transcript);
     toolbar = findViewById(R.id.toolbar);
     toolbar.setBackgroundColor(getColor(R.color.rtt_transcript_primary_color));
