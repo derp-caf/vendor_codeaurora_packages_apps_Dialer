@@ -76,6 +76,7 @@ import com.android.incallui.incall.protocol.PrimaryCallState.ButtonState;
 import com.android.incallui.incall.protocol.PrimaryInfo;
 import com.android.incallui.incall.protocol.SecondaryInfo;
 import com.android.incallui.videotech.utils.SessionModificationState;
+import com.android.incallui.videotech.utils.VideoUtils;
 import java.lang.ref.WeakReference;
 
 /**
@@ -899,6 +900,11 @@ public class CallCardPresenter
       return;
     }
 
+    boolean shouldShowSecondary = primary == null || !VideoUtils.hasSentVideoUpgradeRequest(
+            primary.getVideoTech().getSessionModificationState());
+    LogUtil.v("CallCardPresenter.updateSecondaryDisplayInfo", "shouldShowSecondary = "
+            + shouldShowSecondary);
+
     if (secondary.isMergeInProcess()) {
       LogUtil.i(
           "CallCardPresenter.updateSecondaryDisplayInfo",
@@ -910,7 +916,7 @@ public class CallCardPresenter
     if (secondary.isConferenceCall()) {
       inCallScreen.setSecondary(
           SecondaryInfo.builder()
-              .setShouldShow(true)
+              .setShouldShow(shouldShowSecondary)
               .setName(
                   CallerInfoUtils.getConferenceString(
                       context, secondary.hasProperty(Details.PROPERTY_GENERIC_CONFERENCE)))
@@ -925,7 +931,7 @@ public class CallCardPresenter
       boolean nameIsNumber = name != null && name.equals(secondaryContactInfo.number);
       inCallScreen.setSecondary(
           SecondaryInfo.builder()
-              .setShouldShow(true)
+              .setShouldShow(shouldShowSecondary)
               .setName(secondary.updateNameIfRestricted(name))
               .setNameIsNumber(nameIsNumber)
               .setLabel(secondaryContactInfo.label)

@@ -310,7 +310,11 @@ public class SelectPhoneAccountDialogFragment extends DialogFragment {
       if (!info.isPresent()) {
         return GeoUtil.getCurrentCountryIso(context);
       }
-      return info.get().getCountryIso().toUpperCase();
+      final String country = info.get().getCountryIso();
+      if (country == null) {
+        return GeoUtil.getCurrentCountryIso(context);
+      }
+      return country.toUpperCase();
     }
 
     static final class ViewHolder {
