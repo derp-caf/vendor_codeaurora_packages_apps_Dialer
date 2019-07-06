@@ -435,6 +435,7 @@ public class CallCardPresenter
                 != SessionModificationState.RECEIVED_UPGRADE_TO_VIDEO_REQUEST,
             true /* shouldAnimate */);
     updatePrimaryCallState();
+    updateSecondaryDisplayInfo();
   }
 
   private boolean shouldRefreshPrimaryInfo(boolean primaryChanged) {
