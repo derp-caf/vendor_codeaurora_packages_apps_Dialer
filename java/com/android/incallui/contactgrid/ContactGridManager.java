@@ -41,6 +41,7 @@ import com.android.dialer.glidephotomanager.PhotoInfo;
 import com.android.dialer.lettertile.LetterTileDrawable;
 import com.android.dialer.util.DrawableConverter;
 import com.android.dialer.widget.BidiTextView;
+import com.android.incallui.call.state.DialerCallState;
 import com.android.incallui.incall.protocol.ContactPhotoType;
 import com.android.incallui.incall.protocol.PrimaryCallState;
 import com.android.incallui.incall.protocol.PrimaryInfo;
@@ -48,6 +49,8 @@ import java.util.List;
 
 /** Utility to manage the Contact grid */
 public class ContactGridManager {
+
+  private final static long TIMER_BASE_ZERO = 0;
 
   private final Context context;
   private final View contactGridLayout;
@@ -95,6 +98,9 @@ public class ContactGridManager {
   private PrimaryCallState primaryCallState = PrimaryCallState.empty();
   private final LetterTileDrawable letterTile;
   private boolean isInMultiWindowMode;
+
+  private static long previousConnectTimeMillis = TIMER_BASE_ZERO;
+  private static long timerBase = TIMER_BASE_ZERO;
 
   public ContactGridManager(
       View view, @Nullable ImageView avatarImageView, int avatarSize, boolean showAnonymousAvatar) {
@@ -431,10 +437,14 @@ public class ContactGridManager {
 
     if (info.isTimerVisible) {
       bottomTextSwitcher.setDisplayedChild(1);
-      bottomTimerView.setBase(
-          primaryCallState.connectTimeMillis()
-              - System.currentTimeMillis()
-              + SystemClock.elapsedRealtime());
+      if (primaryCallState.connectTimeMillis() > 0
+          && previousConnectTimeMillis != primaryCallState.connectTimeMillis()) {
+        previousConnectTimeMillis = primaryCallState.connectTimeMillis();
+        timerBase = primaryCallState.connectTimeMillis() - System.currentTimeMillis()
+            + SystemClock.elapsedRealtime();
+      }
+      // May be timer reset
+      if (timerBase > TIMER_BASE_ZERO) bottomTimerView.setBase(timerBase);
       if (!isTimerStarted) {
         LogUtil.i(
             "ContactGridManager.updateBottomRow",
@@ -447,6 +457,10 @@ public class ContactGridManager {
       bottomTextSwitcher.setDisplayedChild(0);
       bottomTimerView.stop();
       isTimerStarted = false;
+      if (primaryCallState.state() == DialerCallState.DISCONNECTED) {
+        previousConnectTimeMillis = TIMER_BASE_ZERO;
+        timerBase = TIMER_BASE_ZERO;
+      }
     }
   }
 

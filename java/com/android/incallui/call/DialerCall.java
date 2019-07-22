@@ -1615,7 +1615,7 @@ public class DialerCall implements VideoTechListener, StateChangedListener, Capa
       if (callbackNumber == null) {
         callbackNumber = "";
       }
-    } else if (!showCallbackNumber) {
+    } else if (!showCallbackNumber && !isEmergencyCall()) {
         callbackNumber = "";
     }
     return callbackNumber;

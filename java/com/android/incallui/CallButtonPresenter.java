@@ -299,11 +299,13 @@ public class CallButtonPresenter
 
   @Override
   public void addCallClicked() {
-    Logger.get(context)
-        .logCallImpression(
-            DialerImpression.Type.IN_CALL_ADD_CALL_BUTTON_PRESSED,
-            call.getUniqueCallId(),
-            call.getTimeAddedMs());
+    if (call != null) {
+      Logger.get(context)
+          .logCallImpression(
+              DialerImpression.Type.IN_CALL_ADD_CALL_BUTTON_PRESSED,
+              call.getUniqueCallId(),
+              call.getTimeAddedMs());
+    }
     InCallPresenter inCallPresenter = InCallPresenter.getInstance();
     if (inCallPresenter.getAutomaticallyMutedByAddCall()) {
       // Since clicking add call button brings user to MainActivity and coming back refreshes mute
@@ -321,11 +323,13 @@ public class CallButtonPresenter
 
   @Override
   public void showDialpadClicked(boolean checked) {
-    Logger.get(context)
-        .logCallImpression(
-            DialerImpression.Type.IN_CALL_SHOW_DIALPAD_BUTTON_PRESSED,
-            call.getUniqueCallId(),
-            call.getTimeAddedMs());
+    if (call != null) {
+      Logger.get(context)
+          .logCallImpression(
+              DialerImpression.Type.IN_CALL_SHOW_DIALPAD_BUTTON_PRESSED,
+              call.getUniqueCallId(),
+              call.getTimeAddedMs());
+    }
     LogUtil.v("CallButtonPresenter", "show dialpad " + String.valueOf(checked));
     getActivity().showDialpadFragment(checked /* show */, true /* animate */);
   }
