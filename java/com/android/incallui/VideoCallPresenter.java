@@ -1604,7 +1604,27 @@ public class VideoCallPresenter
   public void onUpgradeToVideo(DialerCall call) {}
 
   @Override
-  public void onSessionModificationStateChange(DialerCall call) {}
+  public void onSessionModificationStateChange(DialerCall call) {
+    Log.v(this,"onSessionModificationStateChange");
+    if (call == null) {
+      Log.w(this,"Call is null");
+      return;
+    }
+    if (!call.equals(primaryCall)) {
+      LogUtil.e(
+          "VideoCallPresenter.onSessionModificationStateChange", "call is not equal to primary");
+      return;
+    }
+    int sessionModifyState = call.getVideoTech().getSessionModificationState();
+    if (ScreenShareHelper.screenShareRequested()
+        && mScreenShareQuery == REQUEST_TO_START
+        && (sessionModifyState == SessionModificationState.REQUEST_FAILED
+            || sessionModifyState == SessionModificationState.UPGRADE_TO_VIDEO_REQUEST_TIMED_OUT
+            || sessionModifyState == SessionModificationState.UPGRADE_TO_VIDEO_REQUEST_FAILED
+            || sessionModifyState == SessionModificationState.REQUEST_REJECTED)) {
+      clearScreenShareStates();
+    }
+  }
 
   @Override
   public void onCallListChange(CallList callList) {}
