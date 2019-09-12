@@ -101,6 +101,7 @@ LOCAL_AAPT_FLAGS += \
 	--auto-add-overlay \
 	--extra-packages me.leolin.shortcutbadger \
         --rename-manifest-package org.codeaurora.dialer \
+        --legacy \
 
 LOCAL_STATIC_JAVA_LIBRARIES := \
 	android-common \
