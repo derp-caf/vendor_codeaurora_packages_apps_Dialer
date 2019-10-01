@@ -31,7 +31,7 @@
 
   <!-- Title for the activity that dials the phone.  This is the name
        used in the Launcher icon. -->
-  <string name="launcherActivityLabel">QTI Phone</string>
+  <string name="launcherActivityLabel">Phone</string>
 
   <!-- Label shown on the 'positive' button for the dialog. Indicates that the call will proceed -->
   <string name="call">Call</string>

@@ -20,7 +20,7 @@
 
   <!-- Application name used in Settings/Apps. Default label for activities
        that don't specify a label. -->
-  <string name="applicationLabel" tools:ignore="UnusedResources">QTI Phone</string>
+  <string name="applicationLabel" tools:ignore="UnusedResources">Phone</string>
 
   <!-- Title for the activity that dials the phone, when launched directly into the dialpad -->
   <string name="launcherDialpadActivityLabel">Phone Keypad</string>

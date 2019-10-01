@@ -17,5 +17,5 @@
 <resources>
   <!-- Official label of the phone app, as seen in "Manage Applications"
        and other settings UIs. -->
-  <string name="phoneAppLabel" product="default">QTI Phone</string>
+  <string name="phoneAppLabel" product="default">Phone</string>
 </resources>
