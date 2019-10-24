@@ -767,7 +767,7 @@ public class CallCardPresenter
               .setIsWorkCall(hasWorkCallProperty || isWorkContact)
               .setIsSpam(primary.isSpam())
               .setIsLocalContact(primaryContactInfo.isLocalContact())
-              .setAnsweringDisconnectsOngoingCall(primary.answeringDisconnectsForegroundVideoCall())
+              .setAnsweringDisconnectsOngoingCall(primary.answeringDisconnectsOtherCall())
               .setShouldShowLocation(shouldShowLocation())
               .setContactInfoLookupKey(primaryContactInfo.lookupKey)
               .setMultimediaData(multimediaData)
