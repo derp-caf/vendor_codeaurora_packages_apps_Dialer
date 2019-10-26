@@ -215,7 +215,8 @@ public class DialerCall implements VideoTechListener, StateChangedListener, Capa
 
   @Nullable private PreferredAccountRecorder preferredAccountRecorder;
   private boolean isCallRemoved;
-
+  private boolean isVideoCall = false;
+  private boolean overwriteDisconnectCause = false;
   public static String getNumberFromHandle(Uri handle) {
     return handle == null ? "" : handle.getSchemeSpecificPart();
   }
@@ -632,11 +633,30 @@ public class DialerCall implements VideoTechListener, StateChangedListener, Capa
     LogUtil.v("DialerCall.updateFromTelecomCall", telecomCall.toString());
 
     videoTechManager.dispatchCallStateChanged(telecomCall.getState(), getAccountHandle());
-
+    final int oldState = getState();
     final int translatedState = translateState(telecomCall.getState());
+    if (!isVideoCall) {
+      isVideoCall = isVideoCall();
+    }
+    if (!overwriteDisconnectCause) {
+      overwriteDisconnectCause = (DialerCallState.isDialing(oldState)
+          || oldState==DialerCallState.CONNECTING)
+          && (translatedState == DialerCallState.DISCONNECTED)
+          && isVideoCall
+          && QtiImsExtUtils.isCarrierConfigEnabled(BottomSheetHelper.getInstance()
+          .getPhoneId(), context, "notify_video_call_failed");
+    }
     if (state != DialerCallState.BLOCKED) {
       setState(translatedState);
       setDisconnectCause(telecomCall.getDetails().getDisconnectCause());
+      if (overwriteDisconnectCause) {
+        setDisconnectCause(new DisconnectCause(
+            disconnectCause.getCode(),
+            context.getString(R.string.incall_video_call_failed),
+            disconnectCause.getDescription(),
+            disconnectCause.getReason(),
+            disconnectCause.getTone()));
+      }
     }
 
     childCallIds.clear();

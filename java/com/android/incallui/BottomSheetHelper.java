@@ -214,7 +214,8 @@ public class BottomSheetHelper implements PrimaryCallTracker.PrimaryCallChangeLi
        && VideoProfile.isBidirectional(requestedVideoState))
        || ((DialerCallState.INCOMING == primaryCallState
        || DialerCallState.CALL_WAITING == primaryCallState)
-       && QtiCallUtils.isVideoBidirectional(mCall));
+       && (QtiCallUtils.isVideoBidirectional(mCall)
+       && QtiImsExtUtils.canAcceptAsOneWayVideo(getPhoneId(), mContext)));
    }
 
    private boolean isModifyCallOptionsVisible() {

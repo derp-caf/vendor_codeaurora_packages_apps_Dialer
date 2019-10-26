@@ -260,11 +260,30 @@ public class VideoCallPresenter
    }
 
   private boolean isCameraRequired(int videoState, int sessionModificationState) {
+    return isCameraRequired(videoState, sessionModificationState, isIncomingVideoCall(primaryCall));
+  }
+
+  /*
+   * Checks if camera is required
+   * This is used in conjunction with enableCamera(DialerCall call, boolean isCameraRequired)
+   * By default the cached primaryCall information is used, but in instances where the current call
+   * is passed into enableCamera, directly call this API as well.
+   *
+   * @param videoState The video state of either the current call, or primaryCall
+   * @param sessionModificationState The session modification state (current call or primarycall)
+   * @param isIncomingVideoCall returns true if incoming video call (current or primaryCall)
+   */
+  private boolean isCameraRequired(int videoState, int sessionModificationState,
+        boolean isIncomingVideoCall) {
+    // while in ACTIVE call, if we get an INCOMING call we would persist
+    // the same camera state (open or close) of ACTIVE call.
     return !shallTransmitStaticImage() &&
         !ScreenShareHelper.screenShareRequested() &&
         !isModifyToVideoRxType(primaryCall) &&
-        (VideoProfile.isBidirectional(videoState)
-        || VideoProfile.isTransmissionEnabled(videoState)
+        (((VideoProfile.isBidirectional(videoState)
+        || VideoProfile.isTransmissionEnabled(videoState)) &&
+        (!isIncomingVideoCall || QtiImsExtUtils.canAcceptAsOneWayVideo(
+                BottomSheetHelper.getInstance().getPhoneId(), context)))
         || (VideoProfile.isAudioOnly(videoState) && isVideoUpgrade(sessionModificationState)));
   }
 
@@ -1202,7 +1221,8 @@ public class VideoCallPresenter
           deviceOrientation != InCallOrientationEventListener.SCREEN_ORIENTATION_UNKNOWN);
       videoCall.setDeviceOrientation(deviceOrientation);
       enableCamera(
-          call, isCameraRequired(newVideoState, call.getVideoTech().getSessionModificationState()));
+          call, isCameraRequired(newVideoState, call.getVideoTech().getSessionModificationState(),
+                isIncomingVideoCall(call)));
 
       if (QtiImsExtUtils.shallShowStaticImageUi(BottomSheetHelper.getInstance().getPhoneId(),
           context) && shallTransmitStaticImage()) {
