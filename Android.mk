@@ -184,6 +184,9 @@ LOCAL_PRIVILEGED_MODULE := true
 LOCAL_USE_AAPT2 := true
 LOCAL_PRODUCT_MODULE := true
 
+# b/144404735 - Compiling with JDK 1.8 until Dagger & Glide fixed for Java 9
+LOCAL_JAVA_LANGUAGE_VERSION = 1.8
+
 # b/37483961 - Jack Not Compiling Dagger Class Properly
 LOCAL_JACK_ENABLED := javac_frontend
 
