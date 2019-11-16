@@ -17,6 +17,9 @@
 package com.android.dialer.precall.impl;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.DialogInterface;
+import android.content.DialogInterface.OnClickListener;
 import android.content.Intent;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
@@ -34,6 +37,7 @@ import com.android.dialer.precall.PreCallAction;
 import com.android.dialer.precall.PreCallComponent;
 import com.android.dialer.precall.PreCallCoordinator;
 import com.android.dialer.telecom.TelecomUtil;
+import com.android.dialer.util.DialerUtils;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Futures;
@@ -104,7 +108,6 @@ public class PreCallCoordinatorImpl implements PreCallCoordinator {
     Assert.checkArgument(currentAction == null);
     if (currentActionIndex >= actions.size()) {
       placeCall();
-      activity.finish();
       return;
     }
     LogUtil.i("PreCallCoordinatorImpl.runNextAction", "running " + actions.get(currentActionIndex));
@@ -193,6 +196,32 @@ public class PreCallCoordinatorImpl implements PreCallCoordinator {
         LogUtil.e("PreCallCoordinatorImpl.placeCall", "duo.getCallIntent() returned absent");
       }
     }
-    TelecomUtil.placeCall(activity, builder.build());
+
+    if (DialerUtils.shouldWarnForOutgoingWps(activity, builder.getUri().getSchemeSpecificPart(),
+        builder.getPhoneAccountHandle())) {
+      LogUtil.i("PreCallCoordinatorImpl.placeCall",
+          "showing outgoing WPS dialog before placing call");
+      AlertDialog.Builder alertBuilder = new AlertDialog.Builder(activity);
+      alertBuilder.setMessage(R.string.outgoing_wps_warning);
+      alertBuilder.setPositiveButton(R.string.dialog_continue,
+          new OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+              TelecomUtil.placeCall(activity, builder.build());
+              activity.finish();
+            }
+          });
+      alertBuilder.setNegativeButton(android.R.string.cancel,
+          new OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+              activity.finish();
+            }
+          });
+      alertBuilder.create().show();
+    } else {
+      TelecomUtil.placeCall(activity, builder.build());
+      activity.finish();
+    }
   }
 }

@@ -24,7 +24,10 @@ import android.content.DialogInterface.OnClickListener;
 import android.content.Intent;
 import android.graphics.Point;
 import android.os.Bundle;
+import android.telecom.PhoneAccountHandle;
 import android.telecom.TelecomManager;
+import android.telephony.SubscriptionInfo;
+import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.text.BidiFormatter;
 import android.text.TextDirectionHeuristics;
@@ -36,6 +39,7 @@ import com.android.dialer.common.LogUtil;
 import com.android.dialer.telecom.TelecomUtil;
 import java.io.File;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Random;
 
 /** General purpose utility methods for the Dialer. */
@@ -46,6 +50,8 @@ public class DialerUtils {
    * Priority Service.
    */
   private static final String WPS_PREFIX = "*272";
+  private static final String WPS_PREFIX_CLIR_ACTIVATE = "*31#*272";
+  private static final String WPS_PREFIX_CLIR_DEACTIVATE = "#31#*272";
 
   public static final String FILE_PROVIDER_CACHE_DIR = "my_cache";
 
@@ -89,9 +95,9 @@ public class DialerUtils {
           intent.putExtra(TelecomManager.EXTRA_OUTGOING_CALL_EXTRAS, extras);
         }
 
-        if (shouldWarnForOutgoingWps(context, intent.getData().getSchemeSpecificPart())) {
+        if (shouldWarnForOutgoingWps(context, intent.getData().getSchemeSpecificPart(), null)) {
           LogUtil.i(
-              "DialUtils.startActivityWithErrorToast",
+              "DialerUtils.startActivityWithErrorToast",
               "showing outgoing WPS dialog before placing call");
           AlertDialog.Builder builder = new AlertDialog.Builder(context);
           builder.setMessage(R.string.outgoing_wps_warning);
@@ -140,16 +146,75 @@ public class DialerUtils {
    * active LTE call if a WPS number is dialed, so this warning is necessary.
    */
   @SuppressLint("MissingPermission")
-  private static boolean shouldWarnForOutgoingWps(Context context, String number) {
-    if (number != null && number.startsWith(WPS_PREFIX)) {
-      TelephonyManager telephonyManager = context.getSystemService(TelephonyManager.class);
+  public static boolean shouldWarnForOutgoingWps(Context context, String number,
+      PhoneAccountHandle phoneAccountHandle) {
+    if (number != null && (number.startsWith(WPS_PREFIX) ||
+        number.startsWith(WPS_PREFIX_CLIR_ACTIVATE) ||
+        number.startsWith(WPS_PREFIX_CLIR_DEACTIVATE))) {
+      TelephonyManager telephonyManager = getTelephonyManager(context, phoneAccountHandle);
       boolean isOnVolte =
           telephonyManager.getVoiceNetworkType() == TelephonyManager.NETWORK_TYPE_LTE;
-      boolean hasCurrentActiveCall =
-          telephonyManager.getCallState() == TelephonyManager.CALL_STATE_OFFHOOK;
+      boolean hasCurrentActiveCall = telephonyManager.getCallState(
+          getSubscriptionIdFromPhoneAccount(context, phoneAccountHandle)) ==
+          TelephonyManager.CALL_STATE_OFFHOOK;
       return isOnVolte && hasCurrentActiveCall;
     }
     return false;
+  }
+
+  private static int getSubscriptionIdFromPhoneAccount(Context context,
+      PhoneAccountHandle phoneAccountHandle) {
+    SubscriptionManager subscriptionManager = context.getSystemService(SubscriptionManager.class);
+
+    if (phoneAccountHandle == null || TextUtils.isEmpty(phoneAccountHandle.getId())) {
+      LogUtil.i("DialerUtils.getSubscriptionIdFromPhoneAccount",
+          "phoneAccountHandle is null or empty");
+      return subscriptionManager.getDefaultSubscriptionId();
+    }
+
+    List<SubscriptionInfo> subscriptionInfos = subscriptionManager.getActiveSubscriptionInfoList();
+    if (subscriptionInfos == null) {
+      LogUtil.i("DialerUtils.getSubscriptionIdFromPhoneAccount", "SubscriptionInfo is null");
+      return subscriptionManager.getDefaultSubscriptionId();
+    }
+
+    SubscriptionInfo subscriptionInfo = null;
+    for (SubscriptionInfo info : subscriptionInfos) {
+      if (phoneAccountHandle.getId().startsWith(info.getIccId())) {
+        subscriptionInfo = info;
+        break;
+      }
+    }
+
+    return subscriptionInfo != null ? subscriptionInfo.getSubscriptionId() :
+        subscriptionManager.getDefaultSubscriptionId();
+  }
+
+  private static TelephonyManager getTelephonyManager(Context context,
+      PhoneAccountHandle phoneAccountHandle) {
+    TelephonyManager telephonyManager = context.getSystemService(TelephonyManager.class);
+
+    if (phoneAccountHandle == null) {
+      LogUtil.i("DialerUtils.getTelephonyManager", "phoneAccountHandle is null");
+      return telephonyManager;
+    }
+
+    com.google.common.base.Optional<SubscriptionInfo> subscriptionInfo = TelecomUtil.
+        getSubscriptionInfo(context, phoneAccountHandle);
+    if (!subscriptionInfo.isPresent()) {
+      LogUtil.i("DialerUtils.getTelephonyManager", "SubscriptionInfo is not valid");
+      return telephonyManager;
+    }
+
+    TelephonyManager subSpecificTelManager = telephonyManager.createForSubscriptionId(
+        subscriptionInfo.get().getSubscriptionId());
+    if (subSpecificTelManager == null) {
+      LogUtil.i("DialerUtils.getTelephonyManager", "createForSubscriptionId subSpecificTelManager" +
+          " is null");
+      return telephonyManager;
+    }
+
+    return subSpecificTelManager;
   }
 
   /**

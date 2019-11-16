@@ -228,7 +228,4 @@
   <string name="volume_boost_notify_disabled">"Volume boost OFF"</string>
   <string name="volume_boost_notify_unavailable">"Volume boost is disabled when Wired/Bluetoot headset is used"</string>
   <string name="too_many_recipients">The maximum allowed participants in a 4G conference call are 6.</string>
-
-  <!-- This can be used in any application wanting to disable the text "Emergency number" -->
-  <string name="emergency_call_dialog_number_for_display">Emergency number</string>
 </resources>
