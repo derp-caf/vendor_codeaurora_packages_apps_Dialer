@@ -94,8 +94,11 @@ public class RttCallPresenter implements RttCallScreenDelegate, InCallStateListe
         .setId(String.valueOf(dialerCall.getCreationTimeMillis()))
 
         .setTimestamp(dialerCall.getCreationTimeMillis())
-        .setNumber(dialerCall.getNumber())
         .addAllMessages(rttCallScreen.getRttTranscriptMessageList());
+
+    if (dialerCall.getNumber() != null) {
+        builder.setNumber(dialerCall.getNumber());
+    }
     dialerCall.setRttTranscript(builder.build());
   }
 
