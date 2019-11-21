@@ -27,6 +27,7 @@ import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v7.app.AppCompatActivity;
 import android.telephony.SmsManager;
+import android.telephony.SubscriptionManager;
 import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
 import com.android.dialer.enrichedcall.EnrichedCallComponent;
@@ -42,15 +43,17 @@ public class PostCallActivity extends AppCompatActivity implements MessageFragme
   public static final String KEY_PHONE_NUMBER = "phone_number";
   public static final String KEY_MESSAGE = "message";
   public static final String KEY_RCS_POST_CALL = "rcs_post_call";
+  public static final String KEY_SUB_ID = "sub_id";
   private static final int REQUEST_CODE_SEND_SMS = 1;
 
   private boolean useRcs;
 
   public static Intent newIntent(
-      @NonNull Context context, @NonNull String number, boolean isRcsPostCall) {
+      @NonNull Context context, @NonNull String number, boolean isRcsPostCall, int subId) {
     Intent intent = new Intent(Assert.isNotNull(context), PostCallActivity.class);
     intent.putExtra(KEY_PHONE_NUMBER, Assert.isNotNull(number));
     intent.putExtra(KEY_RCS_POST_CALL, isRcsPostCall);
+    intent.putExtra(KEY_SUB_ID, subId);
     return intent;
   }
 
@@ -88,7 +91,9 @@ public class PostCallActivity extends AppCompatActivity implements MessageFragme
 
   @Override
   public void onMessageFragmentSendMessage(@NonNull String message) {
-    String number = Assert.isNotNull(getIntent().getStringExtra(KEY_PHONE_NUMBER));
+    final String number = Assert.isNotNull(getIntent().getStringExtra(KEY_PHONE_NUMBER));
+    final int subId = getIntent().getIntExtra(KEY_SUB_ID,
+        SubscriptionManager.INVALID_SUBSCRIPTION_ID);
     getIntent().putExtra(KEY_MESSAGE, message);
 
     if (useRcs) {
@@ -98,7 +103,9 @@ public class PostCallActivity extends AppCompatActivity implements MessageFragme
       finish();
     } else if (PermissionsUtil.hasPermission(this, permission.SEND_SMS)) {
       LogUtil.i("PostCallActivity.sendMessage", "Sending post call SMS.");
-      SmsManager smsManager = SmsManager.getDefault();
+      SmsManager smsManager = SubscriptionManager.isValidSubscriptionId(subId)
+          ? SmsManager.getSmsManagerForSubscriptionId(subId)
+          : SmsManager.getDefault();
       smsManager.sendMultipartTextMessage(
           number, null, smsManager.divideMessage(message), null, null);
       PostCall.onMessageSent(this, number);

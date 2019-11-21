@@ -23,6 +23,7 @@ import android.content.SharedPreferences;
 import android.support.annotation.Nullable;
 import android.support.design.widget.BaseTransientBottomBar.BaseCallback;
 import android.support.design.widget.Snackbar;
+import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.view.View;
 import android.view.View.OnClickListener;
@@ -48,6 +49,7 @@ public class PostCall {
   private static final String KEY_POST_CALL_CALL_NUMBER = "post_call_call_number";
   private static final String KEY_POST_CALL_MESSAGE_SENT = "post_call_message_sent";
   private static final String KEY_POST_CALL_DISCONNECT_PRESSED = "post_call_disconnect_pressed";
+  private static final String KEY_POST_CALL_SUB_ID = "post_call_sub_id";
 
   private static Snackbar activeSnackbar;
 
@@ -87,12 +89,14 @@ public class PostCall {
             ? activity.getString(R.string.post_call_add_message)
             : activity.getString(R.string.post_call_send_message);
 
-    String number = Assert.isNotNull(getPhoneNumber(activity));
+    final String number = Assert.isNotNull(getPhoneNumber(activity));
+    final int subId = getSubscriptionId(activity);
     OnClickListener onClickListener =
         v -> {
           Logger.get(activity)
               .logImpression(DialerImpression.Type.POST_CALL_PROMPT_USER_TO_SEND_MESSAGE_CLICKED);
-          activity.startActivity(PostCallActivity.newIntent(activity, number, isRcsPostCall));
+          activity.startActivity(PostCallActivity
+              .newIntent(activity, number, isRcsPostCall, subId));
         };
 
     int durationMs =
@@ -161,13 +165,15 @@ public class PostCall {
         .apply();
   }
 
-  public static void onCallDisconnected(Context context, String number, long callConnectedMillis) {
+  public static void onCallDisconnected(Context context, String number, long callConnectedMillis,
+      int subId) {
     StorageComponent.get(context)
         .unencryptedSharedPrefs()
         .edit()
         .putLong(KEY_POST_CALL_CALL_CONNECT_TIME, callConnectedMillis)
         .putLong(KEY_POST_CALL_CALL_DISCONNECT_TIME, System.currentTimeMillis())
         .putString(KEY_POST_CALL_CALL_NUMBER, number)
+        .putInt(KEY_POST_CALL_SUB_ID, subId)
         .apply();
   }
 
@@ -205,6 +211,7 @@ public class PostCall {
         .remove(KEY_POST_CALL_MESSAGE_SENT)
         .remove(KEY_POST_CALL_CALL_CONNECT_TIME)
         .remove(KEY_POST_CALL_DISCONNECT_PRESSED)
+        .remove(KEY_POST_CALL_SUB_ID)
         .apply();
   }
 
@@ -219,9 +226,10 @@ public class PostCall {
     boolean callDisconnectedByUser = manager.getBoolean(KEY_POST_CALL_DISCONNECT_PRESSED, false);
 
     ConfigProvider binding = ConfigProviderComponent.get(context).getConfigProvider();
+    final int subId = getSubscriptionId(context);
     return disconnectTimeMillis != -1
         && connectTimeMillis != -1
-        && isSimReady(context)
+        && isSimReady(context, SubscriptionManager.getSlotIndex(subId))
         && binding.getLong("postcall_last_call_threshold", 30_000) > timeSinceDisconnect
         && (connectTimeMillis == 0
             || binding.getLong("postcall_call_duration_threshold", 35_000) > callDurationMillis)
@@ -242,14 +250,22 @@ public class PostCall {
         .getString(KEY_POST_CALL_CALL_NUMBER, null);
   }
 
+  private static int getSubscriptionId(Context context) {
+    final int subId = StorageComponent.get(context)
+        .unencryptedSharedPrefs()
+        .getInt(KEY_POST_CALL_SUB_ID, SubscriptionManager.INVALID_SUBSCRIPTION_ID);
+    LogUtil.i("PostCall.getSubscription", "sub ID = " + subId);
+    return subId;
+  }
+
   private static boolean isEnabled(Context context) {
     return ConfigProviderComponent.get(context)
         .getConfigProvider()
         .getBoolean("enable_post_call_prod", true);
   }
 
-  private static boolean isSimReady(Context context) {
-    return context.getSystemService(TelephonyManager.class).getSimState()
+  private static boolean isSimReady(Context context, int slotId) {
+    return context.getSystemService(TelephonyManager.class).getSimState(slotId)
         == TelephonyManager.SIM_STATE_READY;
   }
 }

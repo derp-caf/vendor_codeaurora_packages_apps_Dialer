@@ -158,6 +158,11 @@ public class InCallFragment extends Fragment
       inCallButtonUiDelegate.onRestoreInstanceState(savedInstanceState);
       stateRestored = true;
     }
+    audioManager = (AudioManager)getActivity().getSystemService(Context.AUDIO_SERVICE);
+    final String volumeBoost = audioManager.getParameters(VOLUME_BOOST);
+    LogUtil.i("InCallFragment.onCreate", "volumeBoost " + volumeBoost);
+    volumeBoostState = volumeBoost != null
+        ? volumeBoost.equals(VOLUME_BOOST + "=on") : false;
   }
 
   @Nullable
@@ -196,24 +201,15 @@ public class InCallFragment extends Fragment
     moreOptionsMenuButton.setOnClickListener(this);
 
     // volume boost listener
-    audioManager = (AudioManager)getActivity().getSystemService(Context.AUDIO_SERVICE);
     volumeBoostButton = (ImageButton) view.findViewById(R.id.volume_boost);
-    boolean avail = isVolumeBoostAvailable();
     if (volumeBoostButton != null ) {
-      if (avail) { // most cases it is available
-        // initially volume boost state should be off for every call
-        setVolumeBoost(false);
-
-        volumeBoostButton.setOnClickListener(new View.OnClickListener() {
-          @Override
-          public void onClick(View arg0) {
+      volumeBoostButton.setOnClickListener(
+          (v) -> {
             setVolumeBoost(!volumeBoostState);
+            showToastOnVolumeBoostStateChange();
             updateVolumeBoostButton();
-          }
-        });
-      } else {
-        volumeBoostButton.setVisibility(View.INVISIBLE);
-      }
+          });
+      updateVolumeBoostButton();
     }
 
     if (ContextCompat.checkSelfPermission(getContext(), permission.READ_PHONE_STATE)
@@ -292,10 +288,6 @@ public class InCallFragment extends Fragment
   public void onDestroyView() {
     super.onDestroyView();
     inCallScreenDelegate.onInCallScreenUnready();
-
-    // volume boost
-    LogUtil.i("InCallFragment.onDestroyView", "set volume boost false");
-    setVolumeBoost(false);
   }
 
   @Override
@@ -410,6 +402,9 @@ public class InCallFragment extends Fragment
         ButtonChooserFactory.newButtonChooser(
             voiceNetworkType, primaryCallState.isWifi(), phoneType);
     updateButtonStates();
+    if (primaryCallState.state() == DialerCallState.DISCONNECTED) {
+      setVolumeBoost(false);
+    }
   }
 
   @Override
@@ -537,6 +532,7 @@ public class InCallFragment extends Fragment
     ((SpeakerButtonController) getButtonController(InCallButtonIds.BUTTON_AUDIO))
         .setAudioState(audioState);
     getButtonController(InCallButtonIds.BUTTON_MUTE).setChecked(audioState.isMuted());
+    updateVolumeBoostButton();
   }
 
   @Override
@@ -677,6 +673,7 @@ public class InCallFragment extends Fragment
 
   private void setVolumeBoost(boolean on) {
     LogUtil.i("InCallFragment.setVolumeBoost", "state " + on);
+    if (volumeBoostState == on) return;
     audioManager.setParameters(VOLUME_BOOST + (on ? "=on" : "=off"));
     volumeBoostState = on;
   }
@@ -687,13 +684,16 @@ public class InCallFragment extends Fragment
     if (avail) {
         volumeBoostButton.setBackgroundResource(
             volumeBoostState ? R.drawable.vb_active : R.drawable.vb_normal);
-
-        int resId = volumeBoostState ? R.string.volume_boost_notify_enabled :
-                        R.string.volume_boost_notify_disabled;
-        Toast.makeText(getContext(), resId, Toast.LENGTH_SHORT).show();
+        volumeBoostButton.setVisibility(View.VISIBLE);
     } else {
         // set the button disabled or hidden?
-        volumeBoostButton.setVisibility(View.INVISIBLE);
+        volumeBoostButton.setVisibility(View.GONE);
     }
+  }
+
+  private void showToastOnVolumeBoostStateChange() {
+    final int resId = volumeBoostState ? R.string.volume_boost_notify_enabled :
+        R.string.volume_boost_notify_disabled;
+    Toast.makeText(getContext(), resId, Toast.LENGTH_SHORT).show();
   }
 }

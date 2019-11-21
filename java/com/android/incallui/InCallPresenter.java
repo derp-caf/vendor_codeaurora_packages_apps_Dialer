@@ -35,6 +35,7 @@ import android.telecom.PhoneAccountHandle;
 import android.telecom.TelecomManager;
 import android.telecom.VideoProfile;
 import android.telephony.PhoneStateListener;
+import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.util.ArraySet;
 import android.view.Window;
@@ -1066,7 +1067,16 @@ public class InCallPresenter implements CallList.Listener, AudioModeProvider.Aud
         && !call.getLogState().isIncoming
         && !isSecretCode(call.getNumber())
         && !call.isVoiceMailNumber()) {
-      PostCall.onCallDisconnected(context, call.getNumber(), call.getConnectTimeMillis());
+      int subId = SubscriptionManager.INVALID_SUBSCRIPTION_ID;
+      final PhoneAccountHandle handle = call.getAccountHandle();
+      if (handle != null) {
+        PhoneAccount account =
+            context.getSystemService(TelecomManager.class).getPhoneAccount(handle);
+        subId = context.getSystemService(TelephonyManager.class)
+            .getSubIdForPhoneAccount(account);
+      }
+      PostCall.onCallDisconnected(context, call.getNumber(), call.getConnectTimeMillis(),
+          subId);
     }
   }
 

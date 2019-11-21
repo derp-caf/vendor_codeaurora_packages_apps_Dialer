@@ -463,7 +463,7 @@ public class CallerInfo {
 
   /* package */ CallerInfo markAsEmergency(Context context, String number) {
     number = PhoneNumberUtils.normalizeNumber(number);
-    name = context.getString(R.string.emergency_call_dialog_number_for_display);
+    name = context.getString(R.string.emergency_number);
     phoneNumber = number;
 
     //photoResource = R.drawable.img_phone;
