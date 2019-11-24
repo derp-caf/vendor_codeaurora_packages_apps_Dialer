@@ -462,7 +462,6 @@ public class VideoCallFragment extends Fragment
   public void onResume() {
     super.onResume();
     LogUtil.i("VideoCallFragment.onResume", null);
-    inCallButtonUiDelegate.refreshMuteState();
     inCallScreenDelegate.onInCallScreenResumed();
   }
 
