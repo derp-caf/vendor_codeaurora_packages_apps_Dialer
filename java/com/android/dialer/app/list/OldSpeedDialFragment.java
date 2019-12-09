@@ -52,6 +52,7 @@ import com.android.dialer.callintent.CallSpecificAppData;
 import com.android.dialer.common.FragmentUtils;
 import com.android.dialer.common.LogUtil;
 import com.android.dialer.contactphoto.ContactPhotoManager;
+import com.android.dialer.util.DialerUtils;
 import com.android.dialer.util.PermissionsUtil;
 import com.android.dialer.util.ViewUtil;
 import com.android.dialer.widget.EmptyContentView;
@@ -78,7 +79,7 @@ public class OldSpeedDialFragment extends Fragment
 
   private static final String TAG = "OldSpeedDialFragment";
   /** Used with LoaderManager. */
-  private static final int LOADER_ID_CONTACT_TILE = 1;
+  private static final int LOADER_ID_CONTACT_TILE = DialerUtils.getLoaderId(TAG);
 
   private final LongSparseArray<Integer> itemIdTopMap = new LongSparseArray<>();
   private final LongSparseArray<Integer> itemIdLeftMap = new LongSparseArray<>();

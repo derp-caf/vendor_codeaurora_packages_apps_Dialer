@@ -39,6 +39,7 @@ import com.android.dialer.blocking.FilteredNumbersUtil.ImportSendToVoicemailCont
 import com.android.dialer.database.FilteredNumberContract;
 import com.android.dialer.lettertile.LetterTileDrawable;
 import com.android.dialer.theme.base.ThemeComponent;
+import com.android.dialer.util.DialerUtils;
 import com.android.dialer.voicemailstatus.VisualVoicemailEnabledChecker;
 
 /** TODO(calderwoodra): documentation */
@@ -109,7 +110,7 @@ public class BlockedNumbersFragment extends ListFragment
   @Override
   public void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    getLoaderManager().initLoader(0, null, this);
+    getLoaderManager().initLoader(DialerUtils.getLoaderId("BlockedNumbersFragment"), null, this);
   }
 
   @Override

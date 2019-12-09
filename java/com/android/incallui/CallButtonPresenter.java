@@ -16,13 +16,17 @@
 
 package com.android.incallui;
 
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.Bundle;
 import android.os.Trace;
 import android.support.v4.app.Fragment;
 import android.support.v4.os.UserManagerCompat;
 import android.telecom.CallAudioState;
 import android.telecom.PhoneAccountHandle;
+import android.telecom.TelecomManager;
 import android.widget.Toast;
 import com.android.contacts.common.compat.CallCompat;
 import com.android.dialer.common.Assert;
@@ -75,9 +79,11 @@ public class CallButtonPresenter
   private boolean isInCallButtonUiReady;
   private PhoneAccountHandle otherAccount;
   private static final int MAX_PARTICIPANTS_LIMIT = 6;
+  private final PhoneAccountChangedReceiver phoneAccountChangedReceiver;
 
   public CallButtonPresenter(Context context) {
     this.context = context.getApplicationContext();
+    phoneAccountChangedReceiver = new PhoneAccountChangedReceiver(this);
   }
 
   @Override
@@ -97,6 +103,7 @@ public class CallButtonPresenter
 
     // Update the buttons state immediately for the current call
     onStateChange(InCallState.NO_CALLS, inCallPresenter.getInCallState(), CallList.getInstance());
+    phoneAccountChangedReceiver.register();
     isInCallButtonUiReady = true;
   }
 
@@ -111,6 +118,7 @@ public class CallButtonPresenter
     InCallPresenter.getInstance().removeInCallEventListener(this);
     InCallPresenter.getInstance().getInCallCameraManager().removeCameraSelectionListener(this);
     InCallPresenter.getInstance().removeCanAddCallListener(this);
+    phoneAccountChangedReceiver.unregister();
     isInCallButtonUiReady = false;
   }
 
@@ -670,5 +678,49 @@ public class CallButtonPresenter
       }
     }
     return null;
+  }
+
+  /**package*/ void phoneAccountChanged(PhoneAccountHandle accountHandle) {
+    if (call != null
+        && (accountHandle == null || !accountHandle.equals(call.getAccountHandle()))) {
+      updateButtonsState(call);
+    }
+  }
+
+  private final static class PhoneAccountChangedReceiver extends BroadcastReceiver {
+    private final CallButtonPresenter callButtonPresenter;
+    private boolean isRegistered = false;
+
+    public PhoneAccountChangedReceiver(CallButtonPresenter callButtonPresenter) {
+      this.callButtonPresenter = callButtonPresenter;
+    }
+
+    @Override
+    public void onReceive(Context context, Intent intent) {
+    LogUtil.i(
+        "CallButtonPresenter.PhoneAccountChangedReceiver",
+        "onReceive: " + intent.getAction());
+      if (TelecomManager.ACTION_PHONE_ACCOUNT_REGISTERED.equals(intent.getAction())
+          || TelecomManager.ACTION_PHONE_ACCOUNT_UNREGISTERED.equals(intent.getAction())) {
+        callButtonPresenter.phoneAccountChanged(intent
+            .getParcelableExtra(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE));
+      }
+    }
+
+    public void register() {
+      if (!isRegistered) {
+        IntentFilter filter = new IntentFilter(TelecomManager.ACTION_PHONE_ACCOUNT_REGISTERED);
+        filter.addAction(TelecomManager.ACTION_PHONE_ACCOUNT_UNREGISTERED);
+        callButtonPresenter.getContext().registerReceiver(this, filter);
+        isRegistered = true;
+      }
+    }
+
+    public void unregister() {
+      if (isRegistered) {
+        callButtonPresenter.getContext().unregisterReceiver(this);
+        isRegistered = false;
+      }
+    }
   }
 }

@@ -44,6 +44,7 @@ import com.android.dialer.common.concurrent.DialerExecutorComponent;
 import com.android.dialer.logging.DialerImpression;
 import com.android.dialer.logging.Logger;
 import com.android.dialer.theme.base.ThemeComponent;
+import com.android.dialer.util.DialerUtils;
 import com.android.dialer.util.PermissionsUtil;
 import java.util.ArrayList;
 import java.util.List;
@@ -137,7 +138,8 @@ public class GalleryComposerFragment extends CallComposerFragment
   private void setupGallery() {
     adapter = new GalleryGridAdapter(getContext(), null, this);
     galleryGridView.setAdapter(adapter);
-    getLoaderManager().initLoader(0 /* id */, null /* args */, this /* loaderCallbacks */);
+    getLoaderManager().initLoader(DialerUtils.getLoaderId("GalleryComposerFragment") /* id */,
+        null /* args */, this /* loaderCallbacks */);
   }
 
   @Override

@@ -97,6 +97,7 @@ public class ContactsFragment extends Fragment
 
   private boolean hasPhoneNumbers;
   private String query;
+  private static final int LOADER_ID = DialerUtils.getLoaderId(ContactsFragment.class.getSimpleName());
 
   /**
    * Used to get a configured instance of ContactsFragment.
@@ -223,7 +224,7 @@ public class ContactsFragment extends Fragment
     if (getActivity() != null
         && isAdded()
         && PermissionsUtil.hasContactsReadPermissions(getContext())) {
-      getLoaderManager().restartLoader(0, null, this);
+      getLoaderManager().restartLoader(LOADER_ID, null, this);
     }
   }
 
@@ -237,7 +238,7 @@ public class ContactsFragment extends Fragment
 
   public void updateQuery(String query) {
     this.query = query;
-    getLoaderManager().restartLoader(0, null, this);
+    getLoaderManager().restartLoader(LOADER_ID, null, this);
   }
 
   @Override
@@ -364,7 +365,7 @@ public class ContactsFragment extends Fragment
   }
 
   private void loadContacts() {
-    getLoaderManager().initLoader(0, null, this);
+    getLoaderManager().initLoader(LOADER_ID, null, this);
     recyclerView.setVisibility(View.VISIBLE);
     emptyContentView.setVisibility(View.GONE);
   }
