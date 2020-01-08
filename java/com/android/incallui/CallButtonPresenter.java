@@ -561,7 +561,8 @@ public class CallButtonPresenter
     inCallButtonUi.showButton(
         InCallButtonIds.BUTTON_SWITCH_CAMERA,
         isVideo && hasCameraPermission && call.getVideoTech().isTransmitting()
-        && !BottomSheetHelper.getInstance().isHideMeSelected());
+        && !BottomSheetHelper.getInstance().isHideMeSelected()
+        && !ScreenShareHelper.screenShareRequested());
     inCallButtonUi.showButton(InCallButtonIds.BUTTON_PAUSE_VIDEO, showPauseVideo);
     if (isVideo) {
       inCallButtonUi.setVideoPaused(!call.getVideoTech().isTransmitting() || !hasCameraPermission);
@@ -614,6 +615,9 @@ public class CallButtonPresenter
 
   @Override
   public void onOutgoingVideoSourceChanged(int videoSource) {
+    if (inCallButtonUi != null && call != null) {
+      updateButtonsState(call);
+    }
   }
 
   @Override
