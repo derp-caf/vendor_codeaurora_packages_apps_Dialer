@@ -46,6 +46,7 @@ import com.android.dialer.metrics.MetricsComponent;
 import com.android.dialer.metrics.jank.RecyclerViewJankLogger;
 import com.android.dialer.promotion.Promotion.PromotionType;
 import com.android.dialer.promotion.PromotionComponent;
+import com.android.dialer.util.DialerUtils;
 import com.android.dialer.util.PermissionsUtil;
 import com.android.dialer.widget.EmptyContentView;
 import com.android.dialer.widget.EmptyContentView.OnEmptyViewActionButtonClickedListener;
@@ -60,7 +61,8 @@ import java.util.concurrent.TimeUnit;
 public final class NewCallLogFragment extends Fragment implements LoaderCallbacks<Cursor> {
 
   private static final int PHONE_PERMISSIONS_REQUEST_CODE = 1;
-  private static final int LOADER_ID = 0;
+  private static final int LOADER_ID =
+      DialerUtils.getLoaderId(NewCallLogFragment.class.getSimpleName());
 
   @VisibleForTesting
   static final long MARK_ALL_CALLS_READ_WAIT_MILLIS = TimeUnit.SECONDS.toMillis(3);

@@ -36,6 +36,7 @@ import com.android.dialer.calllog.RefreshAnnotatedCallLogReceiver;
 import com.android.dialer.common.LogUtil;
 import com.android.dialer.common.concurrent.DialerExecutorComponent;
 import com.android.dialer.common.concurrent.UiListener;
+import com.android.dialer.util.DialerUtils;
 import com.android.dialer.voicemail.listui.error.VoicemailStatus;
 import com.android.dialer.voicemailstatus.VoicemailStatusQuery;
 import com.android.dialer.widget.EmptyContentView;
@@ -159,7 +160,8 @@ public final class NewVoicemailFragment extends Fragment implements LoaderCallba
     recyclerView = fragmentRootFrameLayout.findViewById(R.id.new_voicemail_call_log_recycler_view);
 
     emptyContentView = fragmentRootFrameLayout.findViewById(R.id.empty_content_view);
-    getLoaderManager().restartLoader(0, null, this);
+    getLoaderManager().restartLoader(
+        DialerUtils.getLoaderId(NewVoicemailFragment.class.getSimpleName()), null, this);
     return fragmentRootFrameLayout;
   }
 

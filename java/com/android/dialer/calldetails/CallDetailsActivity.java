@@ -31,6 +31,7 @@ import com.android.dialer.calllog.database.contract.AnnotatedCallLogContract.Ann
 import com.android.dialer.common.Assert;
 import com.android.dialer.enrichedcall.EnrichedCallComponent;
 import com.android.dialer.protos.ProtoParsers;
+import com.android.dialer.util.DialerUtils;
 
 /**
  * Displays the details of a specific call log entry.
@@ -44,7 +45,8 @@ public final class CallDetailsActivity extends CallDetailsActivityCommon {
   public static final String EXTRA_COALESCED_CALL_LOG_IDS = "coalesced_call_log_ids";
   public static final String EXTRA_HEADER_INFO = "header_info";
 
-  private static final int CALL_DETAILS_LOADER_ID = 0;
+  private static final int CALL_DETAILS_LOADER_ID =
+      DialerUtils.getLoaderId(CallDetailsActivity.class.getSimpleName());
 
   /** IDs of call log entries, used to retrieve them from the annotated call log. */
   private CoalescedIds coalescedCallLogIds;

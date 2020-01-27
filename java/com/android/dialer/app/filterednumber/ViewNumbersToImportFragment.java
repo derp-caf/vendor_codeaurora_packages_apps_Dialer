@@ -31,6 +31,7 @@ import android.view.ViewGroup;
 import com.android.dialer.app.R;
 import com.android.dialer.blocking.FilteredNumbersUtil;
 import com.android.dialer.blocking.FilteredNumbersUtil.ImportSendToVoicemailContactsListener;
+import com.android.dialer.util.DialerUtils;
 
 /** TODO(calderwoodra): documentation */
 public class ViewNumbersToImportFragment extends ListFragment
@@ -64,7 +65,8 @@ public class ViewNumbersToImportFragment extends ListFragment
   @Override
   public void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    getLoaderManager().initLoader(0, null, this);
+    getLoaderManager().initLoader(
+        DialerUtils.getLoaderId("ViewNumbersToImportFragment"), null, this);
   }
 
   @Override

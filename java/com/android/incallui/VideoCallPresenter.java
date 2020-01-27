@@ -554,6 +554,9 @@ public class VideoCallPresenter
     // happens after any call state changes but we're unregistering from InCallPresenter above so
     // we won't get any more call state changes. See a bug.
     if (primaryCall != null) {
+      if (!primaryCall.isVideoCall() && isVideoMode()) {
+        exitVideoMode();
+      }
       maybeUnsetPauseImage();
       updateCameraSelection(primaryCall);
     }
@@ -1313,7 +1316,8 @@ public class VideoCallPresenter
     InCallPresenter.getInstance().enableScreenTimeout(true);
 
     if (ScreenShareHelper.screenShareRequested()) {
-        clearScreenShareStates();
+      exitScreenShare();
+      clearScreenShareStates();
     }
 
     if (primaryCall != null &&

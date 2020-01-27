@@ -38,6 +38,7 @@ import android.widget.Toast;
 import com.android.dialer.common.LogUtil;
 import com.android.dialer.telecom.TelecomUtil;
 import java.io.File;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
@@ -56,6 +57,8 @@ public class DialerUtils {
   public static final String FILE_PROVIDER_CACHE_DIR = "my_cache";
 
   private static final Random RANDOM = new Random();
+
+  private static final HashMap<String, Integer> LOADER_ID_MAP = new HashMap<> ();
 
   /**
    * Attempts to start an activity and displays a toast with the default error message if the
@@ -289,5 +292,16 @@ public class DialerUtils {
       parentDir.mkdirs();
     }
     return new File(parentDir, String.valueOf(fileId));
+  }
+
+  public static int getLoaderId(String name) {
+    if (TextUtils.isEmpty(name)) return 0;
+    if (LOADER_ID_MAP.containsKey(name)) {
+      return LOADER_ID_MAP.get(name);
+    } else {
+        final int index = LOADER_ID_MAP.size() + 1;
+        LOADER_ID_MAP.put(name, index);
+        return index;
+    }
   }
 }

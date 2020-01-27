@@ -213,8 +213,10 @@ final class ContactsAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
     int index = -1;
     int sum = 0;
     while (sum <= position) {
+      if (index >= counts.length -1) return "";
       sum += counts[++index];
     }
+    if (index >= headers.length) return "";
     return headers[index];
   }
 }

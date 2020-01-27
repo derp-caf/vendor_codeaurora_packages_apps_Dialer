@@ -96,13 +96,17 @@ public final class NewSearchFragment extends Fragment
   @VisibleForTesting public static final int READ_CONTACTS_PERMISSION_REQUEST_CODE = 1;
   @VisibleForTesting private static final int LOCATION_PERMISSION_REQUEST_CODE = 2;
 
-  private static final int CONTACTS_LOADER_ID = 0;
-  private static final int NEARBY_PLACES_LOADER_ID = 1;
+  private static final int CONTACTS_LOADER_ID =
+      DialerUtils.getLoaderId("NewSearchFragment-" + "CONTACTS-LOADER");
+  private static final int NEARBY_PLACES_LOADER_ID =
+      DialerUtils.getLoaderId("NewSearchFragment-" + "NEARBY-PLACES");
 
   // ID for the loader that loads info about all directories (local & remote).
-  private static final int DIRECTORIES_LOADER_ID = 2;
+  private static final int DIRECTORIES_LOADER_ID =
+      DialerUtils.getLoaderId("NewSearchFragment-" + "DIRECTORIES");
 
-  private static final int DIRECTORY_CONTACTS_LOADER_ID = 3;
+  private static final int DIRECTORY_CONTACTS_LOADER_ID =
+      DialerUtils.getLoaderId("NewSearchFragment-" + "DIRECTORIES-CONTACTS");
 
   private static final String KEY_QUERY = "key_query";
   private static final String KEY_CALL_INITIATION_TYPE = "key_call_initiation_type";
