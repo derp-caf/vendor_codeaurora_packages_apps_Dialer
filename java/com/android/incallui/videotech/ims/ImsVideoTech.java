@@ -74,12 +74,6 @@ public class ImsVideoTech implements VideoTech {
       return true;
     }
 
-    // The user has disabled IMS video calling in system settings
-    if (!CallUtil.isVideoEnabled(context)) {
-      LogUtil.i("ImsVideoCall.isAvailable", "disabled in settings");
-      return false;
-    }
-
     // The current call doesn't support transmitting video
     if (!call.getDetails().can(Call.Details.CAPABILITY_SUPPORTS_VT_LOCAL_TX)) {
       LogUtil.i("ImsVideoCall.isAvailable", "no TX");
