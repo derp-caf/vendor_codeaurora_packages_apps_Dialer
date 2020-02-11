@@ -206,7 +206,7 @@ public class AnswerFragment extends Fragment
         R.string.call_incoming_swipe_to_answer_and_release) {
       @Override
       public void performAction(AnswerFragment fragment) {
-        fragment.performAnswerAndRelease();
+        fragment.performAnswerAndRelease(false);
       }
     };
 
@@ -239,9 +239,11 @@ public class AnswerFragment extends Fragment
     buttonAcceptClicked = true;
   }
 
-  private void performAnswerAndRelease() {
+  private void performAnswerAndRelease(boolean answerVideoAsAudio) {
     restoreAnswerAndReleaseButtonAnimation();
-    answerScreenDelegate.onAnswerAndReleaseCall();
+    int videoState = answerVideoAsAudio ? VideoProfile.STATE_AUDIO_ONLY :
+        VideoProfile.STATE_BIDIRECTIONAL;
+    answerScreenDelegate.onAnswerAndReleaseCall(videoState);
     buttonAcceptClicked = true;
   }
 
@@ -1034,7 +1036,11 @@ public class AnswerFragment extends Fragment
   private void acceptCallByUser(boolean answerVideoAsAudio) {
     LogUtil.i("AnswerFragment.acceptCallByUser", answerVideoAsAudio ? " answerVideoAsAudio" : "");
     if (!buttonAcceptClicked) {
-      answerScreenDelegate.onAnswer(answerVideoAsAudio);
+      if (allowAnswerAndRelease()) {
+        performAnswerAndRelease(true);
+      } else {
+        answerScreenDelegate.onAnswer(answerVideoAsAudio);
+      }
       buttonAcceptClicked = true;
     }
   }

@@ -183,17 +183,9 @@ public class AnswerScreenPresenter
   }
 
   @Override
-  public void onAnswerAndReleaseCall() {
+  public void onAnswerAndReleaseCall(int videoState) {
     LogUtil.enterBlock("AnswerScreenPresenter.onAnswerAndReleaseCall");
-    DialerCall activeCall = CallList.getInstance().getActiveCall();
-    if (activeCall == null) {
-      LogUtil.i("AnswerScreenPresenter.onAnswerAndReleaseCall", "activeCall == null");
-      onAnswer(false);
-    } else {
-      activeCall.setReleasedByAnsweringSecondCall(true);
-      activeCall.addListener(new AnswerOnDisconnected(activeCall));
-      activeCall.disconnect();
-    }
+    AnswerUtils.disconnectAllAndAnswer(videoState);
     addTimeoutCheck();
   }
 
@@ -237,53 +229,6 @@ public class AnswerScreenPresenter
     if (dialerCall != null && dialerCall.equals(call)) {
       answerScreen.updateAnswerScreenUi();
     }
-  }
-
-  private class AnswerOnDisconnected implements DialerCallListener {
-
-    private final DialerCall disconnectingCall;
-
-    AnswerOnDisconnected(DialerCall disconnectingCall) {
-      this.disconnectingCall = disconnectingCall;
-    }
-
-    @Override
-    public void onDialerCallDisconnect() {
-      LogUtil.i(
-          "AnswerScreenPresenter.AnswerOnDisconnected", "call disconnected, answering new call");
-      call.answer();
-      disconnectingCall.removeListener(this);
-    }
-
-    @Override
-    public void onDialerCallUpdate() {}
-
-    @Override
-    public void onDialerCallChildNumberChange() {}
-
-    @Override
-    public void onDialerCallLastForwardedNumberChange() {}
-
-    @Override
-    public void onDialerCallUpgradeToVideo() {}
-
-    @Override
-    public void onDialerCallSessionModificationStateChange() {}
-
-    @Override
-    public void onWiFiToLteHandover() {}
-
-    @Override
-    public void onHandoverToWifiFailure() {}
-
-    @Override
-    public void onInternationalCallOnWifi() {}
-
-    @Override
-    public void onEnrichedCallSessionUpdate() {}
-
-    @Override
-    public void onSuplServiceMessage(String suplNotificationMessage) {}
   }
 
   private boolean isSmsResponseAllowed(DialerCall call) {
