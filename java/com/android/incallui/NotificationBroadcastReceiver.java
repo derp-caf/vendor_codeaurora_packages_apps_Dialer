@@ -172,7 +172,10 @@ public class NotificationBroadcastReceiver extends BroadcastReceiver {
     } else {
       DialerCall call = callList.getIncomingCall();
       if (call != null) {
-
+        if (call.answeringDisconnectsOtherCall()) {
+          AnswerUtils.disconnectAllAndAnswer(videoState);
+          return;
+        }
         SpeakEasyCallManager speakEasyCallManager =
             InCallPresenter.getInstance().getSpeakEasyCallManager();
         ListenableFuture<Void> answerPrecondition;

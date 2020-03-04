@@ -690,6 +690,7 @@ public class DialerCall implements VideoTechListener, StateChangedListener, Capa
       phoneAccountHandle = newPhoneAccountHandle;
 
       if (phoneAccountHandle != null) {
+        callProviderLabel = "";
         PhoneAccount phoneAccount = telecomManager.getPhoneAccount(phoneAccountHandle);
         if (phoneAccount != null) {
           isCallSubjectSupported =
@@ -1300,12 +1301,12 @@ public class DialerCall implements VideoTechListener, StateChangedListener, Capa
   }
 
   /**
-   * Determines if answering this call will cause an ongoing video call to be dropped.
+   * Determines if answering this call will cause other ongoing calls to be dropped.
    *
-   * @return {@code true} if answering this call will drop an ongoing video call, {@code false}
+   * @return {@code true} if answering this call will drop other ongoing call, {@code false}
    *     otherwise.
    */
-  public boolean answeringDisconnectsForegroundVideoCall() {
+  public boolean answeringDisconnectsOtherCall() {
     Bundle extras = getExtras();
     if (extras == null
         || !extras.containsKey(CallCompat.Details.EXTRA_ANSWERING_DROPS_FOREGROUND_CALL)) {

@@ -486,6 +486,16 @@ public class CallList implements DialerCallDelegate {
     return false;
   }
 
+  public boolean hasIncomingCallOnly() {
+    for (DialerCall call : getAllCalls()) {
+      if (call.isIncoming()) continue;
+      if (call.getState() != DialerCallState.DISCONNECTED) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   /**
    * Returns the first call found in the call map with the upgrade to video modification state.
    *
