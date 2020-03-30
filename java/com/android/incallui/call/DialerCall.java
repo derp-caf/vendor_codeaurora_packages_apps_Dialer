@@ -686,6 +686,7 @@ public class DialerCall implements VideoTechListener, StateChangedListener, Capa
     PhoneAccountHandle newPhoneAccountHandle = telecomCall.getDetails().getAccountHandle();
     if (!Objects.equals(phoneAccountHandle, newPhoneAccountHandle)) {
       phoneAccountHandle = newPhoneAccountHandle;
+      callbackNumber = null;
 
       if (phoneAccountHandle != null) {
         callProviderLabel = "";
