@@ -32,7 +32,7 @@ public interface AnswerScreenDelegate {
 
   void onSpeakEasyCall();
 
-  void onAnswerAndReleaseCall();
+  void onAnswerAndReleaseCall(int videoState);
 
   void onAnswerAndReleaseButtonEnabled();
 

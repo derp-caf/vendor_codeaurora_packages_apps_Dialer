@@ -558,6 +558,7 @@ public class VideoCallPresenter
     LogUtil.v("VideoCallPresenter.cleanUp", "");
     sShallTransmitStaticImage = false;
     sUseDefaultImage = false;
+    mIsIncomingVideoAvailable = false;
     isVideoMode = false;
   }
 
@@ -689,8 +690,7 @@ public class VideoCallPresenter
         exitVideoMode();
       }
 
-      sShallTransmitStaticImage = false;
-      sUseDefaultImage = false;
+      cleanUp();
       InCallPresenter.getInstance().cleanupSurfaces();
     }
 

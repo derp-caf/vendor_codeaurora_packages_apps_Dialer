@@ -1580,8 +1580,8 @@ public class InCallActivity extends TransactionSafeFragmentActivity
   }
 
   private boolean shouldAllowAnswerAndRelease(DialerCall call) {
-    if (CallList.getInstance().getActiveCall() == null) {
-      LogUtil.i("InCallActivity.shouldAllowAnswerAndRelease", "no active call");
+    if (!call.answeringDisconnectsOtherCall()) {
+      LogUtil.i("InCallActivity.shouldAllowAnswerAndRelease", "disabled by extra");
       return false;
     }
     if (getSystemService(TelephonyManager.class).getPhoneType()
@@ -1589,8 +1589,8 @@ public class InCallActivity extends TransactionSafeFragmentActivity
       LogUtil.i("InCallActivity.shouldAllowAnswerAndRelease", "PHONE_TYPE_CDMA not supported");
       return false;
     }
-    if (call.isVideoCall() || call.hasReceivedVideoUpgradeRequest()) {
-      LogUtil.i("InCallActivity.shouldAllowAnswerAndRelease", "video call");
+    if (call.hasReceivedVideoUpgradeRequest()) {
+      LogUtil.i("InCallActivity.shouldAllowAnswerAndRelease", "received video upgrade");
       return false;
     }
     if (!ConfigProviderComponent.get(this)
