@@ -1570,6 +1570,19 @@ public class DialerCall implements VideoTechListener, StateChangedListener, Capa
     telecomCall.deflect(address);
   }
 
+  public void transferCall(Uri address, boolean isConfirmationRequired) {
+    LogUtil.i("DialerCall.transferCall ", "isConfirmationRequired: " +
+        isConfirmationRequired);
+    telecomCall.transfer(address, isConfirmationRequired);
+  }
+
+  public void transferCall(DialerCall toCall) {
+    LogUtil.i("DialerCall.transferCall consultative", "");
+    if (toCall !=null) {
+      telecomCall.transfer(toCall.getTelecomCall());
+    }
+  }
+
   public void reject(boolean rejectWithMessage, String message) {
     LogUtil.i("DialerCall.reject", "");
     telecomCall.reject(rejectWithMessage, message);
