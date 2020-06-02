@@ -540,7 +540,6 @@ public class VideoCallFragment extends Fragment
               @Override
               public void run() {
                 switchOnHoldCallController.setOnScreen();
-                switchOnHoldButton.setVisibility(View.VISIBLE);
               }
             });
 
@@ -734,14 +733,7 @@ public class VideoCallFragment extends Fragment
         .translationX(offset.x)
         .translationY(offset.y)
         .setInterpolator(fastOutLinearInInterpolator)
-        .alpha(0)
-        .withEndAction(
-            new Runnable() {
-              @Override
-              public void run() {
-                switchOnHoldButton.setVisibility(View.INVISIBLE);
-              }
-            });
+        .alpha(0);
 
     View contactGridView = contactGridManager.getContainerView();
     // Animate contact grid to the hidden state.
